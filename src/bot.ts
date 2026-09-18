@@ -9,10 +9,13 @@
 
 import TelegramBot from 'node-telegram-bot-api';
 import express from 'express';
+import type { Server } from 'http';
 import { config } from 'dotenv';
 import NormalizedCache from './cache.js';
 import { loadPrefs } from './cinemas.js';
 import { registerHandlers } from './handlers.js';
+import type { BotLike } from './types.js';
+import { errorMessage } from './types.js';
 
 config();
 
@@ -23,11 +26,9 @@ if (!token) {
 
 const bot = new TelegramBot(token, { polling: false });
 const cache = new NormalizedCache();
-const PORT = process.env.PORT || 10000;
+const PORT = Number(process.env.PORT) || 10000;
 const app = express();
-let server;
-
-// --- Health check ---
+let server: Server | undefined;
 
 app.get('/', (_req, res) => {
   const mem = process.memoryUsage();
@@ -44,9 +45,13 @@ app.get('/', (_req, res) => {
   });
 });
 
-// --- Configuração de comandos do Telegram ---
+async function deleteWebhookDropPending(): Promise<void> {
+  await (bot.deleteWebHook as (opts?: { drop_pending_updates?: boolean }) => Promise<unknown>)({
+    drop_pending_updates: true,
+  });
+}
 
-async function setCommands() {
+async function setCommands(): Promise<void> {
   try {
     await bot.setMyCommands([
       { command: 'start', description: 'Iniciar o bot e escolher cinema' },
@@ -56,19 +61,19 @@ async function setCommands() {
     ]);
     console.log('✅ Menu de comandos configurado');
   } catch (err) {
-    console.error('❌ Erro ao configurar menu de comandos:', err.message);
+    console.error('❌ Erro ao configurar menu de comandos:', errorMessage(err));
   }
 }
-
-// --- Polling error handler ---
 
 let pollingRetries = 0;
 const MAX_POLLING_RETRIES = 5;
 
 bot.on('polling_error', (err) => {
-  console.error('❌ Erro de polling:', err.message);
+  const message = errorMessage(err);
+  const code = (err as Error & { code?: string | number }).code;
+  console.error('❌ Erro de polling:', message);
 
-  if (err.code === 409 || err.message.includes('terminated by other')) {
+  if (code === 409 || message.includes('terminated by other')) {
     pollingRetries++;
     if (pollingRetries > MAX_POLLING_RETRIES) {
       console.error(
@@ -84,11 +89,11 @@ bot.on('polling_error', (err) => {
     bot.stopPolling().then(() => {
       setTimeout(async () => {
         try {
-          await bot.deleteWebHook({ drop_pending_updates: true });
+          await deleteWebhookDropPending();
           bot.startPolling({ restart: true });
           console.log('🔄 Polling reiniciado.');
         } catch (retryErr) {
-          console.error('❌ Erro ao reiniciar polling:', retryErr.message);
+          console.error('❌ Erro ao reiniciar polling:', errorMessage(retryErr));
         }
       }, delay);
     });
@@ -102,19 +107,17 @@ bot.on('polling', () => {
   }
 });
 
-// --- Inicialização ---
-
-(async () => {
+void (async () => {
   await cache.load();
   await loadPrefs();
   await setCommands();
-  registerHandlers(bot, cache);
+  registerHandlers(bot as unknown as BotLike, cache);
 
   try {
-    await bot.deleteWebHook({ drop_pending_updates: true });
+    await deleteWebhookDropPending();
     console.log('✅ Webhook removido, polling liberado.');
   } catch (err) {
-    console.warn('⚠️ Erro ao remover webhook:', err.message);
+    console.warn('⚠️ Erro ao remover webhook:', errorMessage(err));
   }
 
   bot.startPolling({ restart: true });
@@ -128,14 +131,12 @@ bot.on('polling', () => {
   console.log('Aguardando mensagens. Envie /start para começar.');
 })();
 
-// --- Graceful shutdown ---
-
 let shuttingDown = false;
-function shutdown(signal) {
+function shutdown(signal: string): void {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log(`\n👋 Desligando bot (sinal recebido: ${signal})...`);
-  bot.stopPolling();
+  void bot.stopPolling();
   if (server) {
     server.close(() => {
       console.log('✅ Servidor encerrado');

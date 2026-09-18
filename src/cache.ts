@@ -1,28 +1,30 @@
 /**
  * Cache normalizado para dados do Ingresso.com
- *
- * Estrutura do arquivo:
- * {
- *   movies: { [movieId]: MovieStatic },           // dados estáticos (raro mudar)
- *   sessions: { [date]: { fetchedAt, items } },   // dados dinâmicos por data
- *   upcoming: { fetchedAt, items },               // próximos lançamentos
- *   moviesUpdatedAt: ISO string
- * }
- *
- * Regras de expiração:
- * - Sessões expiram na virada do dia (fuso America/Maceio)
- * - Filmes estáticos são atualizados apenas quando uma nova sessão traz um filme desconhecido
  */
 
 import fs from 'fs';
 import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import type {
+  CacheData,
+  MovieStatic,
+  Session,
+  SessionDayCache,
+  UpcomingCache,
+  UpcomingItem,
+} from './types.js';
+import { emptyCache, errorMessage } from './types.js';
 
 const CACHE_FILE = 'data/cache.json';
 const USE_S3 = !!process.env.S3_BUCKET;
 
-/** S3 client shared with prefs — honors AWS_ENDPOINT_URL (LocalStack). */
-export function createS3Client() {
-  const config = {
+type S3ErrorShape = {
+  name?: string;
+  Code?: string;
+  $metadata?: { httpStatusCode?: number };
+};
+
+export function createS3Client(): S3Client {
+  const config: ConstructorParameters<typeof S3Client>[0] = {
     region: process.env.AWS_REGION || 'us-east-1',
   };
   if (process.env.AWS_ENDPOINT_URL) {
@@ -36,42 +38,53 @@ export function createS3Client() {
   return new S3Client(config);
 }
 
-export function isS3NotFound(err) {
+export function isS3NotFound(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const e = err as S3ErrorShape;
   return (
-    err?.name === 'NoSuchKey' ||
-    err?.name === 'NotFound' ||
-    err?.Code === 'NoSuchKey' ||
-    err?.$metadata?.httpStatusCode === 404
+    e.name === 'NoSuchKey' ||
+    e.name === 'NotFound' ||
+    e.Code === 'NoSuchKey' ||
+    e.$metadata?.httpStatusCode === 404
   );
 }
 
-/** Converte um stream do S3 em string (Node 20-compatible). */
-export async function streamToString(stream) {
-  const chunks = [];
-  for await (const chunk of stream) {
-    chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+export async function streamToString(stream: unknown): Promise<string> {
+  if (!stream) return '';
+  if (
+    typeof stream === 'object' &&
+    'transformToString' in stream &&
+    typeof (stream as { transformToString?: unknown }).transformToString === 'function'
+  ) {
+    return (stream as { transformToString: () => Promise<string> }).transformToString();
+  }
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream as AsyncIterable<Uint8Array | string>) {
+    chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : Buffer.from(chunk));
   }
   return Buffer.concat(chunks).toString('utf-8');
 }
 
-let s3;
+let s3: S3Client | undefined;
 if (USE_S3) {
   s3 = createS3Client();
 }
 
-class NormalizedCache {
+export class NormalizedCache {
+  data: CacheData;
+
   constructor() {
-    this.data = { movies: {}, sessions: {}, upcoming: {}, moviesUpdatedAt: null };
+    this.data = emptyCache();
   }
 
-  getMaceioDate(offsetDays = 0) {
+  getMaceioDate(offsetDays = 0): string {
     const now = new Date();
     const maceio = new Date(now.toLocaleString('en-US', { timeZone: 'America/Maceio' }));
     maceio.setDate(maceio.getDate() + offsetDays);
     return maceio.toISOString().split('T')[0];
   }
 
-  toMaceioDateStr(isoString) {
+  toMaceioDateStr(isoString: string): string {
     return new Date(isoString).toLocaleString('en-CA', {
       timeZone: 'America/Maceio',
       year: 'numeric',
@@ -80,30 +93,38 @@ class NormalizedCache {
     });
   }
 
-  async load() {
+  async load(): Promise<void> {
     try {
       if (USE_S3) {
+        if (!s3) throw new Error('S3 client not initialized');
         const res = await s3.send(
           new GetObjectCommand({
             Bucket: process.env.S3_BUCKET,
             Key: process.env.CACHE_KEY || 'cache.json',
           }),
         );
-        this.data = JSON.parse(await streamToString(res.Body));
+        this.data = {
+          ...emptyCache(),
+          ...(JSON.parse(await streamToString(res.Body)) as CacheData),
+        };
       } else if (fs.existsSync(CACHE_FILE)) {
-        this.data = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf-8'));
+        this.data = {
+          ...emptyCache(),
+          ...(JSON.parse(fs.readFileSync(CACHE_FILE, 'utf-8')) as CacheData),
+        };
       }
     } catch (err) {
-      this.data = { movies: {}, sessions: {}, upcoming: {}, moviesUpdatedAt: null };
+      this.data = emptyCache();
       if (!isS3NotFound(err)) {
-        console.warn('⚠️  Cache corrompido, reinicializando:', err.message);
+        console.warn('⚠️  Cache corrompido, reinicializando:', errorMessage(err));
       }
     }
   }
 
-  async save() {
+  async save(): Promise<void> {
     try {
       if (USE_S3) {
+        if (!s3) throw new Error('S3 client not initialized');
         await s3.send(
           new PutObjectCommand({
             Bucket: process.env.S3_BUCKET,
@@ -118,16 +139,11 @@ class NormalizedCache {
         fs.writeFileSync(CACHE_FILE, JSON.stringify(this.data, null, 2), 'utf-8');
       }
     } catch (err) {
-      console.error('❌ Erro ao salvar cache:', err.message);
+      console.error('❌ Erro ao salvar cache:', errorMessage(err));
     }
   }
 
-  /**
-   * Mescla filmes estáticos no cache.
-   * Só sobrescreve se o filme ainda não existe — evita writes desnecessários.
-   * @returns {number} Quantidade de filmes novos adicionados
-   */
-  mergeMovies(movies) {
+  mergeMovies(movies: Record<string, MovieStatic>): number {
     let added = 0;
     for (const [id, movie] of Object.entries(movies)) {
       if (!this.data.movies[id]) {
@@ -142,10 +158,12 @@ class NormalizedCache {
     return added;
   }
 
-  /**
-   * Salva sessões dinâmicas para uma data e teatro específicos.
-   */
-  async setSessions(date, sessions, fetchedAt, theaterId = '1162') {
+  async setSessions(
+    date: string,
+    sessions: Session[],
+    fetchedAt: string,
+    theaterId = '1162',
+  ): Promise<void> {
     if (!this.data.sessions[theaterId]) this.data.sessions[theaterId] = {};
     this.data.sessions[theaterId][date] = { fetchedAt, items: sessions };
     this.purgeOldSessions();
@@ -153,11 +171,7 @@ class NormalizedCache {
     console.log(`💾 ${sessions.length} sessão(ões) salva(s) para ${date} (teatro ${theaterId})`);
   }
 
-  /**
-   * Retorna sessões de uma data/teatro se o cache for válido (mesmo dia em Maceió).
-   * @returns {{ items: Array, fetchedAt: string } | null}
-   */
-  getSessions(date, theaterId = '1162') {
+  getSessions(date: string, theaterId = '1162'): SessionDayCache | null {
     const theaterSessions = this.data.sessions[theaterId];
     if (!theaterSessions) return null;
 
@@ -177,24 +191,15 @@ class NormalizedCache {
     return cached;
   }
 
-  /**
-   * Retorna um filme estático pelo ID.
-   */
-  getMovie(id) {
+  getMovie(id: string | number): MovieStatic | null {
     return this.data.movies[id] ?? null;
   }
 
-  /**
-   * Retorna todos os filmes estáticos.
-   */
-  getAllMovies() {
+  getAllMovies(): Record<string, MovieStatic> {
     return this.data.movies;
   }
 
-  /**
-   * Salva próximos lançamentos no cache para um teatro específico.
-   */
-  async setUpcoming(items, fetchedAt, theaterId = '1162') {
+  async setUpcoming(items: UpcomingItem[], fetchedAt: string, theaterId = '1162'): Promise<void> {
     if (!this.data.upcoming || typeof this.data.upcoming !== 'object') {
       this.data.upcoming = {};
     }
@@ -203,11 +208,7 @@ class NormalizedCache {
     console.log(`💾 ${items.length} lançamento(s) salvo(s) no cache (teatro ${theaterId})`);
   }
 
-  /**
-   * Retorna próximos lançamentos de um teatro se o cache for válido (mesmo dia em Maceió).
-   * @returns {{ items: Array, fetchedAt: string } | null}
-   */
-  getUpcoming(theaterId = '1162') {
+  getUpcoming(theaterId = '1162'): UpcomingCache | null {
     const cached = this.data.upcoming?.[theaterId];
     if (!cached?.fetchedAt) return null;
 
@@ -226,10 +227,7 @@ class NormalizedCache {
     return cached;
   }
 
-  /**
-   * Remove sessões de datas passadas para todos os teatros.
-   */
-  purgeOldSessions() {
+  purgeOldSessions(): void {
     const today = this.getMaceioDate(0);
     for (const theaterId of Object.keys(this.data.sessions)) {
       const theaterSessions = this.data.sessions[theaterId];

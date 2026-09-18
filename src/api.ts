@@ -1,9 +1,10 @@
 import axios from 'axios';
 import { normalizeSessionsResponse, normalizeUpcomingFromSessions } from './normalize.js';
+import type { IngressoDateEntry, NormalizedSessions, UpcomingItem } from './types.js';
 
 const BASE_URL = 'https://api-content.ingresso.com';
 const CITY_ID = 53; // Maceió
-const DEFAULT_THEATER_ID = 1162;
+const DEFAULT_THEATER_ID = '1162';
 
 const HEADERS = {
   'User-Agent':
@@ -13,7 +14,7 @@ const HEADERS = {
   'Accept-Language': 'pt-BR,pt;q=0.9,en;q=0.8',
 };
 
-function getTodayInMaceioISO() {
+function getTodayInMaceioISO(): string {
   return new Date().toLocaleString('en-CA', {
     timeZone: 'America/Maceio',
     year: 'numeric',
@@ -22,27 +23,20 @@ function getTodayInMaceioISO() {
   });
 }
 
-/**
- * Resolve a data alvo:
- * - Se informada (YYYY-MM-DD), usa diretamente
- * - Caso contrário, usa a data de hoje no fuso de Maceió
- */
-function resolveTargetDate(date) {
+function resolveTargetDate(date: string | null): string {
   return date || getTodayInMaceioISO();
 }
 
-/**
- * Busca sessões de um cinema para uma data e retorna dados normalizados.
- *
- * @param {string|null} date - Data YYYY-MM-DD (null = hoje)
- * @returns {Promise<{ movies, sessions, date, fetchedAt }>} Dados normalizados
- */
-export async function fetchNormalized(date = null, theaterId = DEFAULT_THEATER_ID) {
-  const targetDate = await resolveTargetDate(date);
+export async function fetchNormalized(
+  date: string | null = null,
+  theaterId: string | number = DEFAULT_THEATER_ID,
+): Promise<NormalizedSessions> {
+  const targetDate = resolveTargetDate(date);
+  const theater = String(theaterId);
 
-  console.log(`🎬 Buscando sessões para ${targetDate} (teatro ${theaterId})...`);
-  const { data: response } = await axios.get(
-    `${BASE_URL}/v0/sessions/city/${CITY_ID}/theater/${theaterId}/partnership/home/groupBy/sessionType`,
+  console.log(`🎬 Buscando sessões para ${targetDate} (teatro ${theater})...`);
+  const { data: response } = await axios.get<IngressoDateEntry | IngressoDateEntry[]>(
+    `${BASE_URL}/v0/sessions/city/${CITY_ID}/theater/${theater}/partnership/home/groupBy/sessionType`,
     { params: { date: targetDate }, headers: HEADERS },
   );
 
@@ -56,28 +50,22 @@ export async function fetchNormalized(date = null, theaterId = DEFAULT_THEATER_I
   return normalized;
 }
 
-/**
- * Busca próximos lançamentos (apenas em pré-venda).
- *
- * Usa o endpoint de sessões sem filtro de data, identifica filmes em datas
- * futuras que estão em pré-venda e retorna só esses.
- *
- * @returns {Promise<{ items: Array, fetchedAt: string }>}
- */
-export async function fetchUpcoming(theaterId = DEFAULT_THEATER_ID) {
-  console.log(`🆕 Buscando próximos lançamentos - pré-venda (teatro ${theaterId})...`);
+export async function fetchUpcoming(
+  theaterId: string | number = DEFAULT_THEATER_ID,
+): Promise<{ items: UpcomingItem[]; fetchedAt: string }> {
+  const theater = String(theaterId);
+  console.log(`🆕 Buscando próximos lançamentos - pré-venda (teatro ${theater})...`);
 
-  const { data: response } = await axios.get(
-    `${BASE_URL}/v0/sessions/city/${CITY_ID}/theater/${theaterId}`,
+  const { data: response } = await axios.get<IngressoDateEntry | IngressoDateEntry[]>(
+    `${BASE_URL}/v0/sessions/city/${CITY_ID}/theater/${theater}`,
     { headers: HEADERS },
   );
 
   const allDates = Array.isArray(response) ? response : [];
   const today = getTodayInMaceioISO();
 
-  // Filmes em qualquer data <= hoje contam como "já em cartaz"
   const todayLikeEntries = allDates.filter((d) => d.date <= today);
-  const todayMovieIds = new Set();
+  const todayMovieIds = new Set<number>();
   for (const entry of todayLikeEntries) {
     for (const m of entry.movies || []) {
       todayMovieIds.add(m.id);
@@ -92,5 +80,3 @@ export async function fetchUpcoming(theaterId = DEFAULT_THEATER_ID) {
 
   return { items, fetchedAt: new Date().toISOString() };
 }
-
-export default { fetchNormalized, fetchUpcoming };

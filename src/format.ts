@@ -3,6 +3,7 @@
  */
 
 import { getMovieRatings, formatRatingsLine } from './ratings.js';
+import type { DenormalizedMovie, DenormalizedSession, UpcomingItem } from './types.js';
 
 const MESES = [
   'janeiro',
@@ -19,15 +20,20 @@ const MESES = [
   'dezembro',
 ];
 
-const FORMAT_LABELS = { '2D': '2D', Cinépic: 'Cinépic', VIP: 'VIP', '3D': '3D' };
-const FORMAT_ICONS = { '2D': '🎞', Cinépic: '🖥', VIP: '⭐' };
+const FORMAT_LABELS: Record<string, string> = {
+  '2D': '2D',
+  Cinépic: 'Cinépic',
+  VIP: 'VIP',
+  '3D': '3D',
+};
+const FORMAT_ICONS: Record<string, string> = { '2D': '🎞', Cinépic: '🖥', VIP: '⭐' };
 
-export function getMaceioTodayStr() {
+export function getMaceioTodayStr(): string {
   const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Maceio' }));
   return now.toISOString().split('T')[0];
 }
 
-export function formatDatePt(dateStr) {
+export function formatDatePt(dateStr: string | null | undefined): string {
   if (!dateStr || typeof dateStr !== 'string') return 'data não disponível';
   const [year, month, day] = dateStr.split('-');
   if (!year || !month || !day) return 'data não disponível';
@@ -35,13 +41,13 @@ export function formatDatePt(dateStr) {
   return `${parseInt(day, 10)} de ${MESES[monthIdx]} de ${year}`;
 }
 
-function formatPriceTag(ref) {
+function formatPriceTag(ref: DenormalizedSession | undefined): string {
   if (ref?.gratuito) return ' — Gratuito ✨';
   if (ref?.priceInteira) return ` — R$ ${ref.priceInteira.toFixed(2).replace('.', ',')}`;
   return '';
 }
 
-export function formatContentRating(rawRating) {
+export function formatContentRating(rawRating: string | null | undefined): string | null {
   if (!rawRating) return null;
   const normalized = String(rawRating).trim().toLowerCase();
   if (!normalized || normalized === 'l' || normalized === 'livre') return '🟢 Livre';
@@ -53,13 +59,14 @@ export function formatContentRating(rawRating) {
   return `🔹 ${rawRating}`;
 }
 
-function formatSessionsBlock(filme) {
+function formatSessionsBlock(filme: DenormalizedMovie): string {
   if (!filme.sessions || filme.sessions.length === 0) return '';
-  const byFormat = new Map();
+  const byFormat = new Map<string, DenormalizedSession[]>();
   for (const s of filme.sessions) {
     const key = s.format || '2D';
-    if (!byFormat.has(key)) byFormat.set(key, []);
-    byFormat.get(key).push(s);
+    const group = byFormat.get(key);
+    if (group) group.push(s);
+    else byFormat.set(key, [s]);
   }
   let block = '   🕒 Sessões (preços para ingresso inteira):\n';
   for (const [format, sessions] of byFormat) {
@@ -71,13 +78,17 @@ function formatSessionsBlock(filme) {
   return block;
 }
 
-function formatWhen(diffDays, item) {
+function formatWhen(diffDays: number, item: UpcomingItem): string {
   if (diffDays === 1) return `amanhã (${item.firstDateFormatted})`;
   if (diffDays <= 7) return `nesta *${item.firstDateDayOfWeek}* (${item.firstDateFormatted})`;
   return `em ${item.firstDateFormatted} (${item.firstDateDayOfWeek})`;
 }
 
-export async function formatSingleMovieCard(filme, cinemaLabel, dateStr) {
+export async function formatSingleMovieCard(
+  filme: DenormalizedMovie,
+  cinemaLabel: string,
+  dateStr: string | null,
+): Promise<string> {
   let text = `*🎬 PROGRAMAÇÃO*\n📍 ${cinemaLabel}\n📅 ${formatDatePt(dateStr)}\n\n`;
   text += `*${filme.name}*\n`;
 
@@ -98,9 +109,14 @@ export async function formatSingleMovieCard(filme, cinemaLabel, dateStr) {
   return text;
 }
 
-export async function formatSingleUpcomingCard(item, cinemaLabel) {
+export async function formatSingleUpcomingCard(
+  item: UpcomingItem,
+  cinemaLabel: string,
+): Promise<string> {
   const todayStr = getMaceioTodayStr();
-  const diffDays = Math.ceil((new Date(item.firstDate) - new Date(todayStr)) / 86400000);
+  const diffDays = Math.ceil(
+    (new Date(item.firstDate).getTime() - new Date(todayStr).getTime()) / 86400000,
+  );
   const quando = formatWhen(diffDays, item);
 
   let text = `*🆕 PRÓXIMOS LANÇAMENTOS*\n📍 ${cinemaLabel}\n\n`;

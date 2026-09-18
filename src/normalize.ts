@@ -4,22 +4,20 @@
  * Separa dados estáticos de filmes (que mudam raramente) dos dados
  * dinâmicos de sessões (que mudam por dia/horário), eliminando a
  * redundância massiva do endpoint de sessões.
- *
- * Payload original: ~112KB (15 filmes, 32 sessões)
- * Payload normalizado: ~8KB (mesmos dados úteis para UI)
- *
- * Também normaliza próximos lançamentos a partir do endpoint de sessões,
- * identificando filmes que ainda não estão em cartaz hoje.
  */
 
-/**
- * Extrai dados estáticos de um filme da resposta da API.
- * Esses dados são idênticos independente da data ou cinema consultado.
- *
- * @param {object} raw - Objeto de filme cru da API
- * @returns {object} Dados estáticos normalizados
- */
-export function extractMovieStatic(raw) {
+import type {
+  DenormalizedMovie,
+  IngressoDateEntry,
+  IngressoRawMovie,
+  IngressoSessionGroup,
+  MovieStatic,
+  NormalizedSessions,
+  Session,
+  UpcomingItem,
+} from './types.js';
+
+export function extractMovieStatic(raw: IngressoRawMovie): MovieStatic {
   const poster = raw.images?.find((i) => i.type === 'PosterPortrait')?.url ?? null;
   const backdrop = raw.images?.find((i) => i.type === 'PosterHorizontal')?.url ?? null;
   const trailer = raw.trailers?.[0]?.url ?? null;
@@ -28,7 +26,7 @@ export function extractMovieStatic(raw) {
     id: raw.id,
     title: raw.title,
     originalTitle: raw.originalTitle || null,
-    urlKey: raw.urlKey,
+    urlKey: raw.urlKey ?? '',
     duration: Number(raw.duration) || null,
     contentRating: raw.contentRating || null,
     ratingColor: raw.ratingDetails?.color ?? null,
@@ -43,16 +41,11 @@ export function extractMovieStatic(raw) {
   };
 }
 
-/**
- * Extrai sessões dinâmicas de um filme.
- * Cada sessão contém apenas os dados que mudam por dia/cinema.
- *
- * @param {string} movieId - ID do filme pai
- * @param {Array} sessionTypes - Array de sessionTypes da API
- * @returns {Array} Sessões normalizadas
- */
-export function extractSessions(movieId, sessionTypes) {
-  const sessions = [];
+export function extractSessions(
+  movieId: number,
+  sessionTypes: IngressoSessionGroup[] | undefined,
+): Session[] {
+  const sessions: Session[] = [];
 
   for (const group of sessionTypes || []) {
     for (const s of group.sessions || []) {
@@ -77,24 +70,17 @@ export function extractSessions(movieId, sessionTypes) {
   return sessions;
 }
 
-/**
- * Normaliza a resposta completa do endpoint de sessões agrupadas por sessionType.
- *
- * Entrada: resposta de /v0/sessions/city/{city}/theater/{theater}/partnership/home/groupBy/sessionType?date={date}
- * Saída: { movies: Map<id, MovieStatic>, sessions: Session[], date, fetchedAt }
- *
- * @param {object|Array} apiResponse - Resposta crua da API
- * @returns {{ movies: Record<string, object>, sessions: Array, date: string, fetchedAt: string }}
- */
-export function normalizeSessionsResponse(apiResponse) {
+export function normalizeSessionsResponse(
+  apiResponse: IngressoDateEntry | IngressoDateEntry[] | null | undefined,
+): NormalizedSessions {
   const data = Array.isArray(apiResponse) ? apiResponse[0] : apiResponse;
 
   if (!data?.movies) {
     return { movies: {}, sessions: [], date: null, fetchedAt: new Date().toISOString() };
   }
 
-  const movies = {};
-  const sessions = [];
+  const movies: Record<string, MovieStatic> = {};
+  const sessions: Session[] = [];
 
   for (const rawMovie of data.movies) {
     if (!movies[rawMovie.id]) {
@@ -113,17 +99,11 @@ export function normalizeSessionsResponse(apiResponse) {
   };
 }
 
-/**
- * Normaliza próximos lançamentos a partir das sessões futuras do cinema.
- * Percorre todas as datas futuras, identifica filmes que não estão em
- * cartaz hoje (novidades), e extrai apenas os campos úteis para a UI.
- *
- * @param {Array} futureDates - Array de objetos { date, movies, ... } de datas futuras
- * @param {Set<string>} todayMovieIds - IDs dos filmes em cartaz hoje
- * @returns {Array} Filmes novos, ordenados pela primeira data de exibição
- */
-export function normalizeUpcomingFromSessions(futureDates, todayMovieIds) {
-  const seen = new Map();
+export function normalizeUpcomingFromSessions(
+  futureDates: IngressoDateEntry[],
+  todayMovieIds: Set<number>,
+): UpcomingItem[] {
+  const seen = new Map<number, UpcomingItem>();
 
   for (const dateEntry of futureDates) {
     const movies = dateEntry.movies || [];
@@ -133,14 +113,14 @@ export function normalizeUpcomingFromSessions(futureDates, todayMovieIds) {
 
       const poster = raw.images?.find((i) => i.type === 'PosterPortrait')?.url ?? null;
 
-      const formats = new Set();
-      let minPrice = null;
+      const formats = new Set<string>();
+      let minPrice: number | null = null;
 
       const sessionGroups = raw.sessionTypes || raw.rooms || [];
       for (const group of sessionGroups) {
         for (const s of group.sessions || []) {
           for (const t of s.types || []) {
-            if (t.name !== 'Dublado' && t.name !== 'Legendado') {
+            if (t.name !== 'Dublado' && t.name !== 'Legendado' && t.alias) {
               formats.add(t.alias);
             }
           }
@@ -161,8 +141,8 @@ export function normalizeUpcomingFromSessions(futureDates, todayMovieIds) {
         formats: [...formats],
         priceFrom: minPrice,
         firstDate: dateEntry.date,
-        firstDateFormatted: dateEntry.dateFormatted,
-        firstDateDayOfWeek: dateEntry.dayOfWeek,
+        firstDateFormatted: dateEntry.dateFormatted ?? dateEntry.date,
+        firstDateDayOfWeek: dateEntry.dayOfWeek ?? '',
         siteURL: raw.siteURLByTheater || raw.siteURL || null,
       });
     }
@@ -171,16 +151,11 @@ export function normalizeUpcomingFromSessions(futureDates, todayMovieIds) {
   return [...seen.values()];
 }
 
-/**
- * Reconstrói a visão desnormalizada para consumidores que esperam
- * o formato { movies: [{ name, sessions: [...] }] }.
- *
- * @param {Record<string, object>} movies - Mapa de filmes estáticos
- * @param {Array} sessions - Array de sessões dinâmicas
- * @returns {Array} Lista de filmes com sessões embutidas
- */
-export function denormalize(movies, sessions) {
-  const grouped = new Map();
+export function denormalize(
+  movies: Record<string, MovieStatic>,
+  sessions: Session[],
+): DenormalizedMovie[] {
+  const grouped = new Map<number, DenormalizedMovie>();
 
   for (const session of sessions) {
     if (!grouped.has(session.movieId)) {
@@ -194,6 +169,7 @@ export function denormalize(movies, sessions) {
     }
 
     const entry = grouped.get(session.movieId);
+    if (!entry) continue;
     entry.sessions.push({
       time: session.time,
       sessionId: session.id,

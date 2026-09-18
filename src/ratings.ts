@@ -2,51 +2,59 @@
  * Busca notas de filmes:
  * - IMDb e Rotten Tomatoes via OMDb
  * - Fallback via TMDb (quando OMDb não retorna nada)
- *
- * Se nenhuma API estiver configurada ou não houver dados, nada é exibido.
  */
 
 import axios from 'axios';
+import type { RatingsResult } from './types.js';
+import { errorMessage } from './types.js';
 
 const OMDb_BASE = 'https://www.omdbapi.com/';
 const TMDB_BASE = 'https://api.themoviedb.org/3';
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
-const memoryCache = new Map();
+type CacheEntry = { at: number; data: RatingsResult | null };
+const memoryCache = new Map<string, CacheEntry>();
 
-function cacheKey(title, year) {
+function cacheKey(title: string, year: string | number | null | undefined): string {
   const t = (title || '').trim().toLowerCase();
   const y = year ? String(year) : '';
   return `${t}|${y}`;
 }
 
-/**
- * Extrai nota do Rotten Tomatoes do array Ratings da OMDb.
- * @param {Array} ratings - Array de { Source, Value }
- * @returns {string|null} Ex: "85%" ou null
- */
-function extractRottenTomatoes(ratings) {
+function extractRottenTomatoes(ratings: unknown): string | null {
   if (!Array.isArray(ratings)) return null;
-  const rt = ratings.find((r) => r.Source && r.Source.toLowerCase().includes('rotten tomatoes'));
+  const rt = ratings.find(
+    (r: { Source?: string; Value?: string }) =>
+      r.Source && r.Source.toLowerCase().includes('rotten tomatoes'),
+  ) as { Value?: string } | undefined;
   if (!rt || !rt.Value) return null;
   const value = String(rt.Value).trim();
   if (value === 'N/A') return null;
   return value;
 }
 
-async function fetchFromOmdb(title, year) {
+type OmdbResponse = {
+  Response?: string;
+  imdbRating?: string;
+  Ratings?: Array<{ Source?: string; Value?: string }>;
+};
+
+async function fetchFromOmdb(
+  title: string,
+  year: string | number | null | undefined,
+): Promise<RatingsResult | null> {
   const apiKey = process.env.OMDb_API_KEY;
   if (!apiKey) return null;
 
-  const params = {
+  const params: Record<string, string> = {
     apikey: apiKey,
     t: title,
     type: 'movie',
     r: 'json',
   };
-  if (year) params.y = year;
+  if (year) params.y = String(year);
 
-  const { data } = await axios.get(OMDb_BASE, {
+  const { data } = await axios.get<OmdbResponse>(OMDb_BASE, {
     params,
     timeout: 5000,
     headers: {
@@ -66,11 +74,18 @@ async function fetchFromOmdb(title, year) {
     : null;
 }
 
-async function fetchFromTmdb(title, year) {
+type TmdbSearchResponse = {
+  results?: Array<{ vote_average?: number }>;
+};
+
+async function fetchFromTmdb(
+  title: string,
+  year: string | number | null | undefined,
+): Promise<RatingsResult | null> {
   const apiKey = process.env.TMDB_API_KEY;
   if (!apiKey) return null;
 
-  const params = {
+  const params: Record<string, string | boolean | number> = {
     api_key: apiKey,
     query: title,
     include_adult: false,
@@ -78,7 +93,7 @@ async function fetchFromTmdb(title, year) {
   };
   if (year) params.year = year;
 
-  const { data } = await axios.get(`${TMDB_BASE}/search/movie`, {
+  const { data } = await axios.get<TmdbSearchResponse>(`${TMDB_BASE}/search/movie`, {
     params,
     timeout: 5000,
   });
@@ -94,34 +109,29 @@ async function fetchFromTmdb(title, year) {
   return { imdb: null, rottenTomatoes: null, tmdb };
 }
 
-/**
- * Busca nota de um filme usando OMDb (IMDb/RT) e TMDb como fallback.
- *
- * @param {string} title - Título do filme (de preferência o original)
- * @param {number|string|null} [year] - Ano (opcional, melhora a precisão)
- * @returns {Promise<{ imdb: string|null, rottenTomatoes: string|null, tmdb: string|null }|null>}
- */
-export async function getMovieRatings(title, year = null) {
+export async function getMovieRatings(
+  title: string,
+  year: string | number | null = null,
+): Promise<RatingsResult | null> {
   const key = cacheKey(title, year);
   const cached = memoryCache.get(key);
   if (cached && Date.now() - cached.at < CACHE_TTL_MS) {
     return cached.data;
   }
 
-  let result = null;
+  let result: RatingsResult | null = null;
 
   try {
     result = await fetchFromOmdb(title, year);
   } catch (err) {
-    console.warn(`⚠️ OMDb: erro ao buscar "${title}":`, err.message);
+    console.warn(`⚠️ OMDb: erro ao buscar "${title}":`, errorMessage(err));
   }
 
-  // Fallback: se OMDb não trouxe nada, tenta TMDb
   if (!result) {
     try {
       result = await fetchFromTmdb(title, year);
     } catch (err) {
-      console.warn(`⚠️ TMDb: erro ao buscar "${title}":`, err.message);
+      console.warn(`⚠️ TMDb: erro ao buscar "${title}":`, errorMessage(err));
     }
   }
 
@@ -129,14 +139,9 @@ export async function getMovieRatings(title, year = null) {
   return result || null;
 }
 
-/**
- * Formata linha de notas para exibição no Telegram.
- * @param {{ imdb: string|null, rottenTomatoes: string|null, tmdb: string|null }|null} ratings
- * @returns {string} Ex: "⭐ IMDB 7.5 | 🍅 RT 85% | ⭐ TMDB 7.3" ou ""
- */
-export function formatRatingsLine(ratings) {
+export function formatRatingsLine(ratings: RatingsResult | null): string {
   if (!ratings) return '';
-  const parts = [];
+  const parts: string[] = [];
 
   if (ratings.imdb) parts.push(`⭐ IMDb: ${ratings.imdb}/10`);
   if (ratings.rottenTomatoes) parts.push(`🍅 RT: ${ratings.rottenTomatoes}`);
@@ -144,8 +149,5 @@ export function formatRatingsLine(ratings) {
 
   if (parts.length === 0) return '';
 
-  // Linha de cabeçalho + linha com as fontes, com uma quebra entre elas
   return `   📊 Avaliações: ${parts.join(' | ')}\n\n`;
 }
-
-export default { getMovieRatings, formatRatingsLine };

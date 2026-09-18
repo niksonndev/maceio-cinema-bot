@@ -2,17 +2,13 @@
 /**
  * AWS Lambda entry point — Telegram webhook mode.
  *
- * Substitui o polling (`src/bot.js`) por API Gateway HTTP API + Lambda.
+ * Substitui o polling (`src/bot.ts`) por API Gateway HTTP API + Lambda.
  * O Telegram envia POSTs para a URL do API Gateway → esta Lambda processa
  * o update via `handleUpdate()` (aguardado até as respostas saírem).
  *
  * Handlers exportados:
  *   - handler()       → invocado pelo API Gateway (webhook)
  *   - fetchHandler()  → invocado pelo EventBridge (cron diário, fetch + S3 cache update)
- *
- * Uso:
- *   sam build && sam deploy --guided
- *   (ou) npm run bot:listen  ← modo polling local (src/bot.js)
  */
 
 import TelegramBot from 'node-telegram-bot-api';
@@ -21,14 +17,16 @@ import NormalizedCache from './cache.js';
 import { CINEMAS, loadPrefs } from './cinemas.js';
 import { handleUpdate } from './handlers.js';
 import { fetchNormalized, fetchUpcoming } from './api.js';
+import type { ApiGatewayEvent, BotLike, LambdaHttpResult, TelegramUpdate } from './types.js';
+import { errorMessage } from './types.js';
 
 config();
 
 const cache = new NormalizedCache();
-let bot;
+let bot: TelegramBot | undefined;
 let commandsSet = false;
 
-function getBot() {
+function getBot(): TelegramBot {
   if (!bot) {
     const token = process.env.TELEGRAM_BOT_TOKEN;
     if (!token) {
@@ -39,7 +37,7 @@ function getBot() {
   return bot;
 }
 
-async function setCommandsOnce() {
+async function setCommandsOnce(): Promise<void> {
   if (commandsSet) return;
   commandsSet = true;
   try {
@@ -52,47 +50,35 @@ async function setCommandsOnce() {
     console.log('✅ Menu de comandos configurado');
   } catch (err) {
     commandsSet = false;
-    console.error('❌ Erro ao configurar menu de comandos:', err.message);
+    console.error('❌ Erro ao configurar menu de comandos:', errorMessage(err));
   }
 }
 
-/**
- * Handler principal — invocado pelo API Gateway a cada update do Telegram.
- * Recarrega cache e prefs a cada invoke para sobreviver a cold start / multi-instance.
- *
- * @param {object} event - Evento do API Gateway HTTP API (event.body = JSON string)
- * @returns {object} Resposta HTTP 200/500
- */
-export async function handler(event) {
+export async function handler(event: ApiGatewayEvent): Promise<LambdaHttpResult> {
   try {
     await cache.load();
     await loadPrefs();
     await setCommandsOnce();
 
-    const body = typeof event.body === 'string' ? JSON.parse(event.body) : event.body;
-    await handleUpdate(getBot(), cache, body);
+    const body: TelegramUpdate | null | undefined =
+      typeof event.body === 'string' ? (JSON.parse(event.body) as TelegramUpdate) : event.body;
+    await handleUpdate(getBot() as unknown as BotLike, cache, body);
     return {
       statusCode: 200,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ok: true }),
     };
   } catch (err) {
-    console.error('❌ Erro no handler:', err.message);
+    console.error('❌ Erro no handler:', errorMessage(err));
     return {
       statusCode: 500,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ok: false, error: err.message }),
+      body: JSON.stringify({ ok: false, error: errorMessage(err) }),
     };
   }
 }
 
-/**
- * Handler de fetch + cache update — invocado pelo EventBridge (cron diário).
- * Também registra o webhook do Telegram (WEBHOOK_URL só existe nesta função).
- *
- * @returns {object} Resposta 200
- */
-export async function fetchHandler() {
+export async function fetchHandler(): Promise<LambdaHttpResult> {
   await cache.load();
 
   const webhookUrl = process.env.WEBHOOK_URL;
@@ -101,7 +87,7 @@ export async function fetchHandler() {
       await getBot().setWebHook(webhookUrl);
       console.log(`✅ Webhook definido: ${webhookUrl}`);
     } catch (err) {
-      console.warn('⚠️  Erro ao definir webhook:', err.message);
+      console.warn('⚠️  Erro ao definir webhook:', errorMessage(err));
     }
   }
 
@@ -115,21 +101,21 @@ export async function fetchHandler() {
       const normalized = await fetchNormalized(null, theaterId);
       cache.mergeMovies(normalized.movies);
       await cache.setSessions(
-        normalized.date,
+        normalized.date ?? '',
         normalized.sessions,
         normalized.fetchedAt,
         theaterId,
       );
       totalMovies += Object.keys(normalized.movies).length;
     } catch (err) {
-      console.error(`❌ Erro ao atualizar sessões do teatro ${theaterId}:`, err.message);
+      console.error(`❌ Erro ao atualizar sessões do teatro ${theaterId}:`, errorMessage(err));
     }
 
     try {
       const result = await fetchUpcoming(theaterId);
       await cache.setUpcoming(result.items, result.fetchedAt, theaterId);
     } catch (err) {
-      console.error(`❌ Erro ao atualizar lançamentos do teatro ${theaterId}:`, err.message);
+      console.error(`❌ Erro ao atualizar lançamentos do teatro ${theaterId}:`, errorMessage(err));
     }
   }
 

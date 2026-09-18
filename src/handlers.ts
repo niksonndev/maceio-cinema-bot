@@ -2,7 +2,7 @@
  * Handlers de comandos e callbacks do Telegram.
  *
  * `handleUpdate(bot, cache, update)` é o dispatcher compartilhado por
- * polling (bot.js) e webhook (lambda.js). Lambda aguarda o retorno antes
+ * polling (bot.ts) e webhook (lambda.ts). Lambda aguarda o retorno antes
  * de responder 200 ao API Gateway.
  */
 
@@ -16,10 +16,22 @@ import {
   getBackButtonMarkup,
   getCarouselKeyboard,
 } from './keyboards.js';
+import type {
+  BotLike,
+  CacheLike,
+  CarouselType,
+  Cinema,
+  DenormalizedMovie,
+  TelegramCallbackQuery,
+  TelegramMessage,
+  TelegramUpdate,
+  UpcomingItem,
+} from './types.js';
+import { errorMessage } from './types.js';
 
 export const COMMAND_RE = /^\/(start|hoje|proximos|cinemas|atualizar)(?:@\S+)?(?:\s|$)/;
 
-function askCinemaFirst(bot, chatId) {
+function askCinemaFirst(bot: BotLike, chatId: number | string) {
   return bot.sendMessage(
     chatId,
     '⚠️ Você ainda não escolheu um cinema. Escolha abaixo qual cinema deseja consultar:',
@@ -27,22 +39,35 @@ function askCinemaFirst(bot, chatId) {
   );
 }
 
-function sendWithBackButton(bot, chatId, text, cinemaUrl) {
+function sendWithBackButton(
+  bot: BotLike,
+  chatId: number | string,
+  text: string,
+  cinemaUrl: string,
+) {
   return bot.sendMessage(chatId, text, {
     parse_mode: 'Markdown',
     reply_markup: getBackButtonMarkup(cinemaUrl),
   });
 }
 
-function emptyListMessage(type) {
+function emptyListMessage(type: string): string {
   return type === 'proximos'
     ? '📭 *Nenhum lançamento próximo encontrado.*'
     : '📭 *Nenhum filme em cartaz para esta data.*';
 }
 
-async function loadCarouselList(cache, type, cinema) {
-  let list = [];
-  let dateStr = null;
+function isUpcomingType(type: string): type is 'proximos' {
+  return type === 'proximos';
+}
+
+async function loadCarouselList(
+  cache: CacheLike,
+  type: string,
+  cinema: Cinema,
+): Promise<{ list: Array<DenormalizedMovie | UpcomingItem>; dateStr: string | null }> {
+  let list: Array<DenormalizedMovie | UpcomingItem> = [];
+  let dateStr: string | null = null;
 
   if (type === 'hoje') {
     const result = await getMoviesForDate(cache, null, cinema.id);
@@ -60,7 +85,26 @@ async function loadCarouselList(cache, type, cinema) {
   return { list, dateStr };
 }
 
-async function sendCarouselPage(bot, cache, chatId, type, index, cinema) {
+async function formatCarouselItem(
+  type: string,
+  item: DenormalizedMovie | UpcomingItem,
+  cinema: Cinema,
+  dateStr: string | null,
+): Promise<string> {
+  if (isUpcomingType(type)) {
+    return formatSingleUpcomingCard(item as UpcomingItem, cinema.label);
+  }
+  return formatSingleMovieCard(item as DenormalizedMovie, cinema.label, dateStr);
+}
+
+async function sendCarouselPage(
+  bot: BotLike,
+  cache: CacheLike,
+  chatId: number | string,
+  type: string,
+  index: number,
+  cinema: Cinema,
+): Promise<void> {
   const { list, dateStr } = await loadCarouselList(cache, type, cinema);
   const total = list.length;
   if (total === 0) {
@@ -70,10 +114,7 @@ async function sendCarouselPage(bot, cache, chatId, type, index, cinema) {
 
   const safeIndex = Math.max(0, Math.min(index, total - 1));
   const item = list[safeIndex];
-  const isUpcoming = type === 'proximos';
-  const text = isUpcoming
-    ? await formatSingleUpcomingCard(item, cinema.label)
-    : await formatSingleMovieCard(item, cinema.label, dateStr);
+  const text = await formatCarouselItem(type, item, cinema, dateStr);
   const posterUrl = item.poster || null;
   const reply_markup = getCarouselKeyboard(type, safeIndex, total, cinema.url);
 
@@ -91,7 +132,16 @@ async function sendCarouselPage(bot, cache, chatId, type, index, cinema) {
   }
 }
 
-async function editCarouselPage(bot, cache, chatId, messageId, type, index, cinema, hasPhoto) {
+async function editCarouselPage(
+  bot: BotLike,
+  cache: CacheLike,
+  chatId: number | string,
+  messageId: number,
+  type: string,
+  index: number,
+  cinema: Cinema,
+  hasPhoto: boolean,
+): Promise<void> {
   const { list, dateStr } = await loadCarouselList(cache, type, cinema);
   const total = list.length;
   if (total === 0) {
@@ -101,10 +151,7 @@ async function editCarouselPage(bot, cache, chatId, messageId, type, index, cine
 
   const safeIndex = Math.max(0, Math.min(index, total - 1));
   const item = list[safeIndex];
-  const isUpcoming = type === 'proximos';
-  const text = isUpcoming
-    ? await formatSingleUpcomingCard(item, cinema.label)
-    : await formatSingleMovieCard(item, cinema.label, dateStr);
+  const text = await formatCarouselItem(type, item, cinema, dateStr);
   const posterUrl = item.poster || null;
   const reply_markup = getCarouselKeyboard(type, safeIndex, total, cinema.url);
 
@@ -126,7 +173,12 @@ async function editCarouselPage(bot, cache, chatId, messageId, type, index, cine
   }
 }
 
-async function withLoading(bot, chatId, loadingText, fn) {
+async function withLoading(
+  bot: BotLike,
+  chatId: number | string,
+  loadingText: string,
+  fn: () => Promise<void>,
+): Promise<void> {
   const loadingMsg = await bot.sendMessage(chatId, loadingText);
   try {
     await fn();
@@ -135,7 +187,7 @@ async function withLoading(bot, chatId, loadingText, fn) {
   }
 }
 
-export async function handleStart(bot, msg) {
+export async function handleStart(bot: BotLike, msg: TelegramMessage): Promise<void> {
   const chatId = msg.chat.id;
   try {
     await bot.sendMessage(
@@ -145,14 +197,21 @@ export async function handleStart(bot, msg) {
     );
     console.log(`✅ /start enviado para ${msg.from?.username || chatId}`);
   } catch (err) {
-    console.error(`❌ Erro em /start para ${chatId}:`, err.message);
+    console.error(`❌ Erro em /start para ${chatId}:`, errorMessage(err));
   }
 }
 
-export async function handleHoje(bot, cache, msg) {
+export async function handleHoje(
+  bot: BotLike,
+  cache: CacheLike,
+  msg: TelegramMessage,
+): Promise<void> {
   const chatId = msg.chat.id;
   const cinema = await getUserCinema(chatId);
-  if (!cinema) return askCinemaFirst(bot, chatId);
+  if (!cinema) {
+    await askCinemaFirst(bot, chatId);
+    return;
+  }
 
   try {
     await withLoading(bot, chatId, '⏳ Buscando filmes de hoje...', () =>
@@ -160,15 +219,22 @@ export async function handleHoje(bot, cache, msg) {
     );
     console.log(`✅ /hoje enviado para ${msg.from?.username || chatId} (${cinema.name})`);
   } catch (err) {
-    await bot.sendMessage(chatId, `❌ Erro ao buscar filmes: ${err.message}`);
-    console.error(`❌ Erro em /hoje para ${chatId}:`, err.message);
+    await bot.sendMessage(chatId, `❌ Erro ao buscar filmes: ${errorMessage(err)}`);
+    console.error(`❌ Erro em /hoje para ${chatId}:`, errorMessage(err));
   }
 }
 
-export async function handleProximos(bot, cache, msg) {
+export async function handleProximos(
+  bot: BotLike,
+  cache: CacheLike,
+  msg: TelegramMessage,
+): Promise<void> {
   const chatId = msg.chat.id;
   const cinema = await getUserCinema(chatId);
-  if (!cinema) return askCinemaFirst(bot, chatId);
+  if (!cinema) {
+    await askCinemaFirst(bot, chatId);
+    return;
+  }
 
   try {
     await withLoading(bot, chatId, '⏳ Buscando próximos lançamentos...', () =>
@@ -176,12 +242,12 @@ export async function handleProximos(bot, cache, msg) {
     );
     console.log(`✅ /proximos enviado para ${msg.from?.username || chatId} (${cinema.name})`);
   } catch (err) {
-    await bot.sendMessage(chatId, `❌ Erro ao buscar lançamentos: ${err.message}`);
-    console.error(`❌ Erro em /proximos para ${chatId}:`, err.message);
+    await bot.sendMessage(chatId, `❌ Erro ao buscar lançamentos: ${errorMessage(err)}`);
+    console.error(`❌ Erro em /proximos para ${chatId}:`, errorMessage(err));
   }
 }
 
-export async function handleCinemas(bot, msg) {
+export async function handleCinemas(bot: BotLike, msg: TelegramMessage): Promise<void> {
   const chatId = msg.chat.id;
   const current = await getUserCinema(chatId);
   const text = current
@@ -194,17 +260,24 @@ export async function handleCinemas(bot, msg) {
   });
 }
 
-export async function handleAtualizar(bot, cache, msg) {
+export async function handleAtualizar(
+  bot: BotLike,
+  cache: CacheLike,
+  msg: TelegramMessage,
+): Promise<void> {
   const chatId = msg.chat.id;
   const cinema = await getUserCinema(chatId);
-  if (!cinema) return askCinemaFirst(bot, chatId);
+  if (!cinema) {
+    await askCinemaFirst(bot, chatId);
+    return;
+  }
 
   try {
     await withLoading(bot, chatId, '🔄 Atualizando programação de hoje...', async () => {
       const normalized = await fetchNormalized(null, cinema.id);
       cache.mergeMovies(normalized.movies);
       await cache.setSessions(
-        normalized.date,
+        normalized.date ?? getDateString(0),
         normalized.sessions,
         normalized.fetchedAt,
         cinema.id,
@@ -213,19 +286,24 @@ export async function handleAtualizar(bot, cache, msg) {
     });
     console.log(`✅ /atualizar enviado para ${msg.from?.username || chatId} (${cinema.name})`);
   } catch (err) {
-    await bot.sendMessage(chatId, `❌ Erro ao atualizar: ${err.message}`);
-    console.error(`❌ Erro em /atualizar para ${chatId}:`, err.message);
+    await bot.sendMessage(chatId, `❌ Erro ao atualizar: ${errorMessage(err)}`);
+    console.error(`❌ Erro em /atualizar para ${chatId}:`, errorMessage(err));
   }
 }
 
-export async function handleCallbackQuery(bot, cache, query) {
-  const chatId = query.message.chat.id;
+export async function handleCallbackQuery(
+  bot: BotLike,
+  cache: CacheLike,
+  query: TelegramCallbackQuery,
+): Promise<void> {
+  const chatId = query.message?.chat.id;
   const callbackData = query.data;
+  if (chatId == null || !callbackData) return;
 
   try {
     await bot.answerCallbackQuery(query.id);
   } catch (err) {
-    console.error('❌ Erro ao responder callback:', err.message);
+    console.error('❌ Erro ao responder callback:', errorMessage(err));
   }
 
   try {
@@ -266,14 +344,15 @@ export async function handleCallbackQuery(bot, cache, query) {
 
     const carouselMatch = callbackData.match(/^carousel_(hoje|amanha|proximos)_(\d+)_(\d+)$/);
     if (carouselMatch) {
-      const [, type, indexStr] = carouselMatch;
-      const index = parseInt(indexStr, 10);
-      const messageId = query.message.message_id;
-      const hasPhoto = Array.isArray(query.message.photo) && query.message.photo.length > 0;
+      const type = carouselMatch[1] as CarouselType;
+      const index = parseInt(carouselMatch[2], 10);
+      const messageId = query.message?.message_id;
+      if (messageId == null) return;
+      const hasPhoto = Array.isArray(query.message?.photo) && query.message.photo.length > 0;
       try {
         await editCarouselPage(bot, cache, chatId, messageId, type, index, cinema, hasPhoto);
       } catch (err) {
-        console.error(`❌ Erro ao editar carrossel ${type}:`, err.message);
+        console.error(`❌ Erro ao editar carrossel ${type}:`, errorMessage(err));
       }
       return;
     }
@@ -346,16 +425,21 @@ export async function handleCallbackQuery(bot, cache, query) {
         await sendWithBackButton(bot, chatId, '❓ Opção não reconhecida.', cinema.url);
     }
   } catch (err) {
-    console.error(`❌ Erro ao processar ${callbackData}:`, err.message);
-    await bot.sendMessage(chatId, `❌ Erro ao processar: ${err.message}`).catch(() => {});
+    console.error(`❌ Erro ao processar ${callbackData}:`, errorMessage(err));
+    await bot.sendMessage(chatId, `❌ Erro ao processar: ${errorMessage(err)}`).catch(() => {});
   }
 }
 
-export async function handleUpdate(bot, cache, update) {
+export async function handleUpdate(
+  bot: BotLike,
+  cache: CacheLike,
+  update: TelegramUpdate | null | undefined,
+): Promise<void> {
   if (!update) return;
 
   if (update.callback_query) {
-    return handleCallbackQuery(bot, cache, update.callback_query);
+    await handleCallbackQuery(bot, cache, update.callback_query);
+    return;
   }
 
   const msg = update.message;
@@ -366,26 +450,32 @@ export async function handleUpdate(bot, cache, update) {
 
   switch (match[1]) {
     case 'start':
-      return handleStart(bot, msg);
+      await handleStart(bot, msg);
+      return;
     case 'hoje':
-      return handleHoje(bot, cache, msg);
+      await handleHoje(bot, cache, msg);
+      return;
     case 'proximos':
-      return handleProximos(bot, cache, msg);
+      await handleProximos(bot, cache, msg);
+      return;
     case 'cinemas':
-      return handleCinemas(bot, msg);
+      await handleCinemas(bot, msg);
+      return;
     case 'atualizar':
-      return handleAtualizar(bot, cache, msg);
+      await handleAtualizar(bot, cache, msg);
+      return;
     default:
   }
 }
 
-export function registerHandlers(bot, cache) {
-  bot.on('callback_query', (query) => handleCallbackQuery(bot, cache, query));
-  bot.on('message', (msg) => {
+export function registerHandlers(bot: BotLike, cache: CacheLike): void {
+  bot.on?.('callback_query', ((query: TelegramCallbackQuery) =>
+    handleCallbackQuery(bot, cache, query)) as (...args: never[]) => unknown);
+  bot.on?.('message', ((msg: TelegramMessage) => {
     if (msg.text && !COMMAND_RE.test(msg.text)) {
       console.log(`📨 Mensagem recebida de ${msg.from?.username || msg.chat.id}: "${msg.text}"`);
       return;
     }
     return handleUpdate(bot, cache, { message: msg });
-  });
+  }) as (...args: never[]) => unknown);
 }
