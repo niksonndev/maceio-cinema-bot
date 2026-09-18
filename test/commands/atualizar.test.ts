@@ -7,8 +7,8 @@ vi.mock('../../src/data.js', () => ({
 }));
 
 vi.mock('../../src/format.js', () => ({
-  formatSingleMovieCard: vi.fn(async (filme) => `card:${filme.title}`),
-  formatSingleUpcomingCard: vi.fn(async (item) => `upcoming:${item.title}`),
+  formatSingleMovieCard: vi.fn(async (filme: { title: string }) => `card:${filme.title}`),
+  formatSingleUpcomingCard: vi.fn(async (item: { title: string }) => `upcoming:${item.title}`),
 }));
 
 vi.mock('../../src/api.js', () => ({
@@ -25,15 +25,15 @@ import { createMockBot, createMockCache, commandUpdate, SAMPLE_MOVIE } from '../
 const CHAT = 6001;
 
 describe('/atualizar', () => {
-  let bot;
-  let cache;
+  let bot: ReturnType<typeof createMockBot>;
+  let cache: ReturnType<typeof createMockCache>;
 
   beforeEach(async () => {
     bot = createMockBot();
     cache = createMockCache();
     await clearPrefs();
-    fetchNormalized.mockReset();
-    getMoviesForDate.mockReset();
+    vi.mocked(fetchNormalized).mockReset();
+    vi.mocked(getMoviesForDate).mockReset();
   });
 
   it('asks for a cinema when no preference is stored', async () => {
@@ -44,13 +44,28 @@ describe('/atualizar', () => {
 
   it('refetches sessions and then shows the carousel', async () => {
     await setUserCinema(CHAT, '1162');
-    fetchNormalized.mockResolvedValue({
+    vi.mocked(fetchNormalized).mockResolvedValue({
       movies: { 99: SAMPLE_MOVIE },
-      sessions: [{ id: 's1', movieId: 99 }],
+      sessions: [
+        {
+          id: 's1',
+          movieId: 99,
+          time: '20:00',
+          price: 30,
+          room: null,
+          format: '2D',
+          audio: null,
+          checkoutUrl: null,
+        },
+      ],
       date: '2026-09-18',
       fetchedAt: '2026-09-18T12:00:00.000Z',
     });
-    getMoviesForDate.mockResolvedValue({ movies: [SAMPLE_MOVIE], date: '2026-09-18' });
+    vi.mocked(getMoviesForDate).mockResolvedValue({
+      movies: [SAMPLE_MOVIE],
+      date: '2026-09-18',
+      fromCache: false,
+    });
 
     await handleUpdate(bot, cache, commandUpdate('/atualizar', CHAT));
 

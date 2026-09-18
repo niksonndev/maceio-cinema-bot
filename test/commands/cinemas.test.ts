@@ -6,8 +6,8 @@ import { createMockBot, createMockCache, commandUpdate } from '../helpers.js';
 const CHAT = 5001;
 
 describe('/cinemas', () => {
-  let bot;
-  let cache;
+  let bot: ReturnType<typeof createMockBot>;
+  let cache: ReturnType<typeof createMockCache>;
 
   beforeEach(async () => {
     bot = createMockBot();
@@ -18,7 +18,11 @@ describe('/cinemas', () => {
   it('asks the user to pick a cinema when none is selected', async () => {
     await handleUpdate(bot, cache, commandUpdate('/cinemas', CHAT));
 
-    const [chatId, text, opts] = bot.sendMessage.mock.calls[0];
+    const [chatId, text, opts] = bot.sendMessage.mock.calls[0] as [
+      number,
+      string,
+      { parse_mode: string; reply_markup: { inline_keyboard: unknown[] } },
+    ];
     expect(chatId).toBe(CHAT);
     expect(text).toMatch(/Escolha o cinema/i);
     expect(opts.parse_mode).toBe('Markdown');
@@ -29,7 +33,7 @@ describe('/cinemas', () => {
     await setUserCinema(CHAT, '924');
     await handleUpdate(bot, cache, commandUpdate('/cinemas', CHAT));
 
-    const text = bot.sendMessage.mock.calls[0][1];
+    const text = bot.sendMessage.mock.calls[0][1] as string;
     expect(text).toMatch(/Cinema atual/);
     expect(text).toMatch(/Kinoplex/);
   });

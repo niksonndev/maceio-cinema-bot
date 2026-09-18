@@ -7,8 +7,8 @@ vi.mock('../../src/data.js', () => ({
 }));
 
 vi.mock('../../src/format.js', () => ({
-  formatSingleMovieCard: vi.fn(async (filme) => `card:${filme.title}`),
-  formatSingleUpcomingCard: vi.fn(async (item) => `upcoming:${item.title}`),
+  formatSingleMovieCard: vi.fn(async (filme: { title: string }) => `card:${filme.title}`),
+  formatSingleUpcomingCard: vi.fn(async (item: { title: string }) => `upcoming:${item.title}`),
 }));
 
 import { getUpcomingMovies } from '../../src/data.js';
@@ -19,14 +19,14 @@ import { createMockBot, createMockCache, commandUpdate, SAMPLE_UPCOMING } from '
 const CHAT = 4001;
 
 describe('/proximos', () => {
-  let bot;
-  let cache;
+  let bot: ReturnType<typeof createMockBot>;
+  let cache: ReturnType<typeof createMockCache>;
 
   beforeEach(async () => {
     bot = createMockBot();
     cache = createMockCache();
     await clearPrefs();
-    getUpcomingMovies.mockReset();
+    vi.mocked(getUpcomingMovies).mockReset();
   });
 
   it('asks for a cinema when no preference is stored', async () => {
@@ -37,7 +37,7 @@ describe('/proximos', () => {
 
   it('sends an upcoming carousel when a cinema is selected', async () => {
     await setUserCinema(CHAT, '1162');
-    getUpcomingMovies.mockResolvedValue({ items: [SAMPLE_UPCOMING] });
+    vi.mocked(getUpcomingMovies).mockResolvedValue({ items: [SAMPLE_UPCOMING], fromCache: false });
 
     await handleUpdate(bot, cache, commandUpdate('/proximos', CHAT));
 
@@ -51,7 +51,7 @@ describe('/proximos', () => {
 
   it('sends an empty-state message when there are no upcoming titles', async () => {
     await setUserCinema(CHAT, '1162');
-    getUpcomingMovies.mockResolvedValue({ items: [] });
+    vi.mocked(getUpcomingMovies).mockResolvedValue({ items: [], fromCache: false });
 
     await handleUpdate(bot, cache, commandUpdate('/proximos', CHAT));
 

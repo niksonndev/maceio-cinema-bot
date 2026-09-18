@@ -7,8 +7,8 @@ vi.mock('../src/data.js', () => ({
 }));
 
 vi.mock('../src/format.js', () => ({
-  formatSingleMovieCard: vi.fn(async (filme) => `card:${filme.title}`),
-  formatSingleUpcomingCard: vi.fn(async (item) => `upcoming:${item.title}`),
+  formatSingleMovieCard: vi.fn(async (filme: { title: string }) => `card:${filme.title}`),
+  formatSingleUpcomingCard: vi.fn(async (item: { title: string }) => `upcoming:${item.title}`),
 }));
 
 import { getMoviesForDate, getUpcomingMovies } from '../src/data.js';
@@ -25,15 +25,15 @@ import {
 const CHAT = 7001;
 
 describe('callback queries', () => {
-  let bot;
-  let cache;
+  let bot: ReturnType<typeof createMockBot>;
+  let cache: ReturnType<typeof createMockCache>;
 
   beforeEach(async () => {
     bot = createMockBot();
     cache = createMockCache();
     await clearPrefs();
-    getMoviesForDate.mockReset();
-    getUpcomingMovies.mockReset();
+    vi.mocked(getMoviesForDate).mockReset();
+    vi.mocked(getUpcomingMovies).mockReset();
   });
 
   it('persists cinema_<id> and shows the main menu', async () => {
@@ -42,9 +42,12 @@ describe('callback queries', () => {
     const cinema = await getUserCinema(CHAT);
     expect(cinema?.id).toBe('1162');
     expect(bot.answerCallbackQuery).toHaveBeenCalledWith('cb1');
-    const text = bot.sendMessage.mock.calls[0][1];
+    const text = bot.sendMessage.mock.calls[0][1] as string;
     expect(text).toMatch(/Cinesystem/);
-    expect(bot.sendMessage.mock.calls[0][2].reply_markup.inline_keyboard).toEqual(
+    expect(
+      (bot.sendMessage.mock.calls[0][2] as { reply_markup: { inline_keyboard: unknown } })
+        .reply_markup.inline_keyboard,
+    ).toEqual(
       expect.arrayContaining([
         expect.arrayContaining([expect.objectContaining({ callback_data: 'filmes_hoje' })]),
       ]),
@@ -65,7 +68,11 @@ describe('callback queries', () => {
 
   it('shows today movies after a cinema is selected', async () => {
     await handleUpdate(bot, cache, callbackUpdate('cinema_1230', CHAT));
-    getMoviesForDate.mockResolvedValue({ movies: [SAMPLE_MOVIE], date: '2026-09-18' });
+    vi.mocked(getMoviesForDate).mockResolvedValue({
+      movies: [SAMPLE_MOVIE],
+      date: '2026-09-18',
+      fromCache: false,
+    });
 
     await handleUpdate(bot, cache, callbackUpdate('filmes_hoje', CHAT));
 
@@ -75,7 +82,11 @@ describe('callback queries', () => {
 
   it('shows tomorrow movies via filmes_amanha', async () => {
     await handleUpdate(bot, cache, callbackUpdate('cinema_1162', CHAT));
-    getMoviesForDate.mockResolvedValue({ movies: [SAMPLE_MOVIE], date: '2026-09-19' });
+    vi.mocked(getMoviesForDate).mockResolvedValue({
+      movies: [SAMPLE_MOVIE],
+      date: '2026-09-19',
+      fromCache: false,
+    });
 
     await handleUpdate(bot, cache, callbackUpdate('filmes_amanha', CHAT));
 
@@ -84,7 +95,7 @@ describe('callback queries', () => {
 
   it('shows upcoming via proximos_lancamentos', async () => {
     await handleUpdate(bot, cache, callbackUpdate('cinema_1162', CHAT));
-    getUpcomingMovies.mockResolvedValue({ items: [SAMPLE_UPCOMING] });
+    vi.mocked(getUpcomingMovies).mockResolvedValue({ items: [SAMPLE_UPCOMING], fromCache: false });
 
     await handleUpdate(bot, cache, callbackUpdate('proximos_lancamentos', CHAT));
 
@@ -100,7 +111,11 @@ describe('callback queries', () => {
       title: 'Segundo',
       poster: 'https://example.com/2.jpg',
     };
-    getMoviesForDate.mockResolvedValue({ movies: [SAMPLE_MOVIE, second], date: '2026-09-18' });
+    vi.mocked(getMoviesForDate).mockResolvedValue({
+      movies: [SAMPLE_MOVIE, second],
+      date: '2026-09-18',
+      fromCache: false,
+    });
 
     await handleUpdate(
       bot,

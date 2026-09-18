@@ -3,8 +3,8 @@ import { handleUpdate } from '../../src/handlers.js';
 import { createMockBot, createMockCache, commandUpdate } from '../helpers.js';
 
 describe('/start', () => {
-  let bot;
-  let cache;
+  let bot: ReturnType<typeof createMockBot>;
+  let cache: ReturnType<typeof createMockCache>;
 
   beforeEach(() => {
     bot = createMockBot();
@@ -15,7 +15,11 @@ describe('/start', () => {
     await handleUpdate(bot, cache, commandUpdate('/start', 2001));
 
     expect(bot.sendMessage).toHaveBeenCalledTimes(1);
-    const [chatId, text, opts] = bot.sendMessage.mock.calls[0];
+    const [chatId, text, opts] = bot.sendMessage.mock.calls[0] as [
+      number,
+      string,
+      { reply_markup: { inline_keyboard: unknown[] } },
+    ];
     expect(chatId).toBe(2001);
     expect(text).toMatch(/guia de cinema/i);
     expect(opts.reply_markup.inline_keyboard).toEqual(
@@ -30,6 +34,9 @@ describe('/start', () => {
 
     expect(bot.sendMessage).toHaveBeenCalledTimes(1);
     expect(bot.sendMessage.mock.calls[0][0]).toBe(2002);
-    expect(bot.sendMessage.mock.calls[0][2].reply_markup.inline_keyboard.length).toBe(3);
+    expect(
+      (bot.sendMessage.mock.calls[0][2] as { reply_markup: { inline_keyboard: unknown[] } })
+        .reply_markup.inline_keyboard.length,
+    ).toBe(3);
   });
 });

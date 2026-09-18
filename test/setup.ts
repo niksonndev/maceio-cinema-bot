@@ -1,6 +1,12 @@
-import { S3Client, CreateBucketCommand, HeadBucketCommand } from '@aws-sdk/client-s3';
+import {
+  S3Client,
+  CreateBucketCommand,
+  HeadBucketCommand,
+  type CreateBucketCommandInput,
+  type BucketLocationConstraint,
+} from '@aws-sdk/client-s3';
 
-async function ensureBucket() {
+async function ensureBucket(): Promise<void> {
   const bucket = process.env.S3_BUCKET;
   if (!bucket) return;
 
@@ -18,9 +24,11 @@ async function ensureBucket() {
     await client.send(new HeadBucketCommand({ Bucket: bucket }));
   } catch {
     const region = process.env.AWS_REGION || 'us-east-1';
-    const input = { Bucket: bucket };
+    const input: CreateBucketCommandInput = { Bucket: bucket };
     if (region !== 'us-east-1') {
-      input.CreateBucketConfiguration = { LocationConstraint: region };
+      input.CreateBucketConfiguration = {
+        LocationConstraint: region as BucketLocationConstraint,
+      };
     }
     await client.send(new CreateBucketCommand(input));
   }

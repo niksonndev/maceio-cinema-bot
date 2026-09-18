@@ -7,8 +7,8 @@ vi.mock('../../src/data.js', () => ({
 }));
 
 vi.mock('../../src/format.js', () => ({
-  formatSingleMovieCard: vi.fn(async (filme) => `card:${filme.title}`),
-  formatSingleUpcomingCard: vi.fn(async (item) => `upcoming:${item.title}`),
+  formatSingleMovieCard: vi.fn(async (filme: { title: string }) => `card:${filme.title}`),
+  formatSingleUpcomingCard: vi.fn(async (item: { title: string }) => `upcoming:${item.title}`),
 }));
 
 import { getMoviesForDate } from '../../src/data.js';
@@ -25,27 +25,31 @@ import {
 const CHAT = 3001;
 
 describe('/hoje', () => {
-  let bot;
-  let cache;
+  let bot: ReturnType<typeof createMockBot>;
+  let cache: ReturnType<typeof createMockCache>;
 
   beforeEach(async () => {
     bot = createMockBot();
     cache = createMockCache();
     await clearPrefs();
-    getMoviesForDate.mockReset();
+    vi.mocked(getMoviesForDate).mockReset();
   });
 
   it('asks for a cinema when no preference is stored', async () => {
     await handleUpdate(bot, cache, commandUpdate('/hoje', CHAT));
 
     expect(getMoviesForDate).not.toHaveBeenCalled();
-    const text = bot.sendMessage.mock.calls[0][1];
+    const text = bot.sendMessage.mock.calls[0][1] as string;
     expect(text).toMatch(/não escolheu um cinema/i);
   });
 
   it('sends a photo carousel when a cinema is selected', async () => {
     await setUserCinema(CHAT, '1162');
-    getMoviesForDate.mockResolvedValue({ movies: [SAMPLE_MOVIE], date: '2026-09-18' });
+    vi.mocked(getMoviesForDate).mockResolvedValue({
+      movies: [SAMPLE_MOVIE],
+      date: '2026-09-18',
+      fromCache: false,
+    });
 
     await handleUpdate(bot, cache, commandUpdate('/hoje', CHAT));
 
@@ -61,9 +65,10 @@ describe('/hoje', () => {
 
   it('sends a text card when the movie has no poster', async () => {
     await setUserCinema(CHAT, '1230');
-    getMoviesForDate.mockResolvedValue({
+    vi.mocked(getMoviesForDate).mockResolvedValue({
       movies: [SAMPLE_MOVIE_NO_POSTER],
       date: '2026-09-18',
+      fromCache: false,
     });
 
     await handleUpdate(bot, cache, commandUpdate('/hoje', CHAT));
@@ -75,7 +80,7 @@ describe('/hoje', () => {
 
   it('reports an error when the data layer fails', async () => {
     await setUserCinema(CHAT, '924');
-    getMoviesForDate.mockRejectedValue(new Error('ingresso down'));
+    vi.mocked(getMoviesForDate).mockRejectedValue(new Error('ingresso down'));
 
     await handleUpdate(bot, cache, commandUpdate('/hoje', CHAT));
 

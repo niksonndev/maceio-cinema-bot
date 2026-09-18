@@ -11,11 +11,9 @@ const { botMocks } = vi.hoisted(() => ({
 
 vi.mock('node-telegram-bot-api', () => ({
   default: class TelegramBot {
-    constructor() {
-      this.sendMessage = botMocks.sendMessage;
-      this.setMyCommands = botMocks.setMyCommands;
-      this.setWebHook = botMocks.setWebHook;
-    }
+    sendMessage = botMocks.sendMessage;
+    setMyCommands = botMocks.setMyCommands;
+    setWebHook = botMocks.setWebHook;
   },
 }));
 
@@ -24,7 +22,7 @@ process.env.TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || 'test-token';
 import { handler } from '../src/lambda.js';
 import { commandUpdate } from './helpers.js';
 
-function httpApiEvent(update) {
+function httpApiEvent(update: unknown) {
   return {
     version: '2.0',
     routeKey: 'POST /webhook',

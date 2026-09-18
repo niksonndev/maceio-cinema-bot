@@ -16,8 +16,8 @@ describe('cinema preferences', () => {
     await setUserCinema(8001, '1162');
     const cinema = await getUserCinema(8001);
     expect(cinema).not.toBeNull();
-    expect(cinema.id).toBe('1162');
-    expect(cinema.name).toBe('Cinesystem');
+    expect(cinema?.id).toBe('1162');
+    expect(cinema?.name).toBe('Cinesystem');
   });
 
   it('reloads from storage after a simulated new process', async () => {
