@@ -52,9 +52,12 @@ Resources:
   # ----------------------------------------------------------------
   BotFunction:
     Type: AWS::Serverless::Function
+    Metadata:
+      BuildProperties:
+        UseNpmCi: true
     Properties:
       CodeUri: .
-      Handler: src/lambda.handler
+      Handler: dist/lambda.handler
       Environment:
         Variables:
           TELEGRAM_BOT_TOKEN: !Ref TelegramBotToken
@@ -83,9 +86,12 @@ Resources:
   # ----------------------------------------------------------------
   FetchFunction:
     Type: AWS::Serverless::Function
+    Metadata:
+      BuildProperties:
+        UseNpmCi: true
     Properties:
       CodeUri: .
-      Handler: src/lambda.fetchHandler
+      Handler: dist/lambda.fetchHandler
       Timeout: 120
       Environment:
         Variables:

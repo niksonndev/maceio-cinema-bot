@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-sam build
+npm run sam:build
 
 shopt -s nullglob
 files=(events/webhook-event.json events/commands/*.json events/callbacks/*.json)
