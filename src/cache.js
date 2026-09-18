@@ -19,18 +19,44 @@ import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3
 
 const CACHE_FILE = 'data/cache.json';
 const USE_S3 = !!process.env.S3_BUCKET;
-let s3;
-if (USE_S3) {
-  s3 = new S3Client({ region: process.env.AWS_REGION });
+
+/** S3 client shared with prefs — honors AWS_ENDPOINT_URL (LocalStack). */
+export function createS3Client() {
+  const config = {
+    region: process.env.AWS_REGION || 'us-east-1',
+  };
+  if (process.env.AWS_ENDPOINT_URL) {
+    config.endpoint = process.env.AWS_ENDPOINT_URL;
+    config.forcePathStyle = true;
+    config.credentials = {
+      accessKeyId: process.env.AWS_ACCESS_KEY_ID || 'test',
+      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || 'test',
+    };
+  }
+  return new S3Client(config);
+}
+
+export function isS3NotFound(err) {
+  return (
+    err?.name === 'NoSuchKey' ||
+    err?.name === 'NotFound' ||
+    err?.Code === 'NoSuchKey' ||
+    err?.$metadata?.httpStatusCode === 404
+  );
 }
 
 /** Converte um stream do S3 em string (Node 20-compatible). */
-async function streamToString(stream) {
+export async function streamToString(stream) {
   const chunks = [];
   for await (const chunk of stream) {
     chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
   }
   return Buffer.concat(chunks).toString('utf-8');
+}
+
+let s3;
+if (USE_S3) {
+  s3 = createS3Client();
 }
 
 class NormalizedCache {
@@ -69,7 +95,9 @@ class NormalizedCache {
       }
     } catch (err) {
       this.data = { movies: {}, sessions: {}, upcoming: {}, moviesUpdatedAt: null };
-      console.warn('⚠️  Cache corrompido, reinicializando:', err.message);
+      if (!isS3NotFound(err)) {
+        console.warn('⚠️  Cache corrompido, reinicializando:', err.message);
+      }
     }
   }
 
