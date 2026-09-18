@@ -8,14 +8,16 @@
 
 ## 🟢 Status do Deploy
 
-O bot está **hospedado no [Render](https://render.com)** e permanece estável em produção.
+Produção alvo: **AWS SAM** (Lambda + API Gateway webhook + EventBridge + S3).
+Polling local (`npm run bot:listen`) é só para desenvolvimento.
 
 | Item | Detalhe |
 | --- | --- |
-| 🌐 **URL do serviço** | https://cinesystem-scrapper.onrender.com |
-| 📡 **Health check** | `GET https://cinesystem-scrapper.onrender.com/` — retorna status e timestamp em JSON |
-| 🔌 **Porta** | Dinâmica via `process.env.PORT` (fallback `10000`), conforme exigido pelo Render |
-| 📋 **Logs** | Health check e graceful shutdown (SIGTERM/SIGINT) para monitoramento da estabilidade do container |
+| ☁️ **IaC** | [`template.yaml`](template.yaml) (AWS SAM) |
+| 🔌 **Ingresso** | Telegram webhook → API Gateway `POST /webhook` → `src/lambda.handler` |
+| 💾 **Cache** | S3 (`cache.json` + `prefs.json`) em produção; `data/*.json` em local |
+| ⏰ **Warm** | EventBridge cron diário → `src/lambda.fetchHandler` |
+| 📋 **Guia** | [`docs/deployment.md`](docs/deployment.md) |
 
 ---
 
@@ -128,9 +130,9 @@ Edite o `.env` e defina o token do bot (obtido via [@BotFather](https://t.me/Bot
 TELEGRAM_BOT_TOKEN=seu_token_aqui
 ```
 
-Opcionalmente, defina `PORT` (padrão local: `10000`). No Render, a porta é injetada automaticamente.
+Opcionalmente, defina `PORT` (padrão local: `10000`).
 
-**4. Inicie o bot**
+**4. Inicie o bot** (polling local — não use o mesmo token da produção)
 
 ```bash
 npm run bot:listen
@@ -138,11 +140,17 @@ npm run bot:listen
 
 O bot ficará escutando comandos no Telegram. O health check estará em `http://localhost:10000/` (ou na porta definida em `PORT`).
 
+**5. Testes** (exige Docker)
+
+```bash
+npm test
+```
+
 ---
 
 ## 📂 Arquitetura
 
-O projeto é uma aplicação Node.js com 11 módulos em `src/`. Veja a
+O projeto é uma aplicação Node.js com módulos em `src/`. Veja a
 [documentação completa de arquitetura](docs/architecture.md) para detalhes sobre
 fluxos de dados e responsabilidades.
 
@@ -150,14 +158,15 @@ fluxos de dados e responsabilidades.
 | --------------- | ---------------------------------------------------------------- |
 | `api.js`        | Cliente HTTP (Axios) para a API pública do Ingresso.com          |
 | `normalize.js`  | Separa dados estáticos de filmes dos dinâmicos de sessões        |
-| `cache.js`      | Cache JSON (`data/cache.json`) com expiração diária por cinema     |
+| `cache.js`      | Cache JSON (arquivo local ou S3) com expiração diária por cinema |
 | `data.js`       | Orquestra cache ↔ API ↔ normalize (cache hit antes da API)        |
 | `cinemas.js`    | Definição dos 3 cinemas + preferências por usuário                |
 | `format.js`     | Formatação de mensagens Telegram (Markdown)                       |
 | `ratings.js`    | Notas IMDb/RT (OMDb) + fallback TMDb, cache 24h                   |
 | `keyboards.js`  | Builders de teclados inline do Telegram                           |
 | `handlers.js`   | Handlers de comandos e callbacks                                 |
-| `bot.js`        | Entry point (polling + Express + graceful shutdown)               |
+| `bot.js`        | Entry local (polling + Express + graceful shutdown)               |
+| `lambda.js`     | Entry produção (webhook Lambda + fetch/cache warm)                |
 | `index.js`      | CLI para verificação rápida via terminal                          |
 
 Veja também os documentos técnicos na pasta [`docs/`](./docs):
@@ -166,7 +175,7 @@ Veja também os documentos técnicos na pasta [`docs/`](./docs):
 - [`docs/data-model.md`](docs/data-model.md) — estrutura completa de `cache.json`
 - [`docs/caching.md`](docs/caching.md) — regras de expiração e TTL
 - [`docs/api-reference.md`](docs/api-reference.md) — endpoints e contratos
-- [`docs/deployment.md`](docs/deployment.md) — deploy no Render
+- [`docs/deployment.md`](docs/deployment.md) — deploy AWS SAM (Render legado)
 - [`docs/development.md`](docs/development.md) — como rodar localmente
 
 ---
@@ -176,18 +185,22 @@ Veja também os documentos técnicos na pasta [`docs/`](./docs):
 | Variável | Obrigatória | Padrão | Descrição |
 | --- | --- | --- | --- |
 | `TELEGRAM_BOT_TOKEN` | Sim | — | Token do bot obtido via @BotFather |
-| `PORT` | Não | `10000` | Porta do servidor (health check). No Render use a porta dinâmica `process.env.PORT` — o código já usa fallback `10000` |
-| `OMDb_API_KEY` | Não | — | Chave da [OMDb](https://www.omdbapi.com/apikey.aspx) para buscar notas do IMDb e Rotten Tomatoes. Se não definida, essas notas não são exibidas. |
-| `TMDB_API_KEY` | Não | — | Chave da [TMDb](https://www.themoviedb.org/settings/api). Usada como **fallback** para exibir nota TMDb quando a OMDb não retorna dados. |
+| `PORT` | Não | `10000` | Porta do Express (health check) no modo polling local |
+| `OMDb_API_KEY` | Não | — | Chave da [OMDb](https://www.omdbapi.com/apikey.aspx) para IMDb/RT |
+| `TMDB_API_KEY` | Não | — | Fallback [TMDb](https://www.themoviedb.org/settings/api) |
+| `S3_BUCKET` | Não* | — | Bucket do cache e prefs (*injetado pelo SAM em produção) |
+| `CACHE_KEY` | Não | `cache.json` | Chave do objeto de cache no S3 |
+| `PREFS_KEY` | Não | `prefs.json` | Chave do objeto de preferências no S3 |
+| `WEBHOOK_URL` | Não* | — | URL do webhook (*SAM na FetchFunction: `…/prod/webhook`); `setWebHook` no fetch |
 
 ---
 
----
+## ☁️ Deploy (AWS SAM — Lambda + API Gateway)
 
-O bot está hospedado na **AWS** via **SAM (Serverless Application Model)**,
-usando **Lambda**, **API Gateway** (webhook) e **EventBridge** (cache warming).
+Deploy via **SAM**: Lambda + API Gateway (webhook) + EventBridge (cache warm) + S3.
+Preferências de cinema persistem em S3 (`prefs.json`).
 
-Veja o [guia completo de deploy](docs/deployment.md) para instruções detalhadas.
+Veja o [guia completo](docs/deployment.md).
 
 ```bash
 npm run sam:build

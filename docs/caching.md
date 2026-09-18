@@ -3,27 +3,42 @@
 > O cache evita requisições desnecessárias à API do Ingresso.com, reduzindo
 > latência e dependência externa.
 
-## Armazenamento
+## Backend de armazenamento
 
-| Tipo              | Onde               | Persistido? | Expira?                                   |
+| Ambiente | Onde | Como |
+| -------- | ---- | ---- |
+| Local (`npm start` / `bot:listen`) | `data/cache.json` + `data/prefs.json` | Arquivo no disco |
+| Produção (SAM / Lambda) | S3 | Objetos `CACHE_KEY` (`cache.json`) e `PREFS_KEY` (`prefs.json`) no bucket `S3_BUCKET` |
+| Testes (`npm test`) | LocalStack S3 | Mesmo código de produção, `AWS_ENDPOINT_URL` aponta para o container |
+
+A escolha é automática em `src/cache.js` / `src/cinemas.js`: se `process.env.S3_BUCKET` estiver
+definido, usa o AWS SDK (`GetObject` / `PutObject`); senão, usa o arquivo local.
+`AWS_ENDPOINT_URL` (com `forcePathStyle`) habilita LocalStack sem fork do código.
+
+A BotFunction **recarrega** cache e prefs do S3 a **cada invoke**, para não servir
+dados de outra instância ou de um warm antigo.
+
+## Armazenamento lógico
+
+| Tipo              | Onde (lógico)      | Persistido? | Expira?                                   |
 | ----------------- | ------------------ | ----------- | ----------------------------------------- |
-| Filmes estáticos  | S3 (prod) / JSON   | ✅ Sim      | Nunca expira (atualizado sob demanda)     |
-| Sessões           | S3 (prod) / JSON   | ✅ Sim      | Expira à meia-noite (fuso `America/Maceio`) |
-| Lançamentos       | S3 (prod) / JSON   | ✅ Sim      | Expira à meia-noite (fuso `America/Maceio`) |
+| Filmes estáticos  | `movies`           | ✅ Sim      | Nunca expira (atualizado sob demanda)     |
+| Sessões           | `sessions`         | ✅ Sim      | Expira à meia-noite (fuso `America/Maceio`) |
+| Lançamentos       | `upcoming`         | ✅ Sim      | Expira à meia-noite (fuso `America/Maceio`) |
 | Ratings           | Map em memória     | ❌ Não      | 24h (`CACHE_TTL_MS`)                      |
-| Preferências      | Map em memória     | ❌ Não      | Perdido em reinício                       |
+| Preferências      | `prefs.json`       | ✅ Sim      | Não expira (write-through por chatId)     |
 
-> Em produção (AWS Lambda), `S3_BUCKET` e `CACHE_KEY` são injetadas via
-> `template.yaml`. Localmente (modo dev), o cache recai para `data/cache.json`.
-
-## Arquivo: `cache.json` (S3 em prod / `data/cache.json` em dev)
+## Estrutura do JSON
 
 ```
-data/cache.json
+cache.json
 ├── movies        → { movieId: MovieStatic }    (estático)
 ├── sessions      → { theaterId: { date: { fetchedAt, items } } }  (dinâmico)
 ├── upcoming      → { theaterId: { fetchedAt, items } }            (dinâmico)
 └── moviesUpdatedAt → ISO string
+
+prefs.json
+└── { "<chatId>": "<theaterId>" }
 ```
 
 ## Regras de expiração
@@ -51,7 +66,6 @@ return cached;  // válido
 
 - `mergeMovies(movies)` **nunca sobrescreve** um filme já existente.
 - Só adiciona `movieId`s **novos** e atualiza `moviesUpdatedAt`.
-- Isso elimina writes desnecessários — os dados estáticos mudam raramente.
 
 ## Lógica de cache hit/miss
 
@@ -67,12 +81,19 @@ if (cached) {
 // ❌ CACHE MISS — fetch + normalize + save
 const normalized = await fetchNormalized(date, theaterId);
 cache.mergeMovies(normalized.movies);
-cache.setSessions(normalized.date, normalized.sessions, normalized.fetchedAt, theaterId);
+await cache.setSessions(normalized.date, normalized.sessions, normalized.fetchedAt, theaterId);
 ```
+
+## Warm diário (produção)
+
+A Lambda `fetchHandler` (EventBridge, `cron(0 3 * * ? *)` = meia-noite em Maceió)
+pré-carrega sessões e lançamentos dos 3 teatros e grava no S3, reduzindo cold-start
+fetch nas interações do usuário. Após o deploy, rode `npm run sam:warm` uma vez
+para registrar o webhook e aquecer o cache (senão espera o cron das 03:00 UTC).
 
 ## Estratégia de 3 cinemas
 
-O cache é **indexado por `theaderId`**, permitindo que os 3 cinemas (Cinesystem `1162`,
+O cache é **indexado por `theaterId`**, permitindo que os 3 cinemas (Cinesystem `1162`,
 Centerplex `1230`, Kinoplex `924`) mantenham sessões/lançamentos independentes, cada um
 com sua própria expiração diária.
 
@@ -86,9 +107,10 @@ const memoryCache = new Map();             // key: "title|year" → { at, data }
 
 - Busca IMDb/RT via OMDb; se falhar, fallback TMDb.
 - Resultado cacheado por 24h para evitar chamadas repetidas.
-- Perdido em reinício do processo (não afeta funcionalidade — apenas re-faz a busca).
+- Perdido em reinício / cold start (não afeta funcionalidade — apenas re-faz a busca).
 
-## Diretório `data/`
+## Diretório `data/` (local)
 
-- Criado automaticamente (`fs.mkdirSync('data', { recursive: true })`) no primeiro `save()`.
-- Contém **apenas** `cache.json` (o antigo `state.json` foi removido — era código morto).
+- Criado automaticamente (`fs.mkdirSync('data', { recursive: true })`) no primeiro `save()` local.
+- Contém `cache.json` e `prefs.json`. Em containers efêmeros (ex.: Render legado) esses arquivos
+  não sobrevivem a reinícios — por isso a produção usa S3.

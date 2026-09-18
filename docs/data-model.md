@@ -4,7 +4,8 @@
 
 ## 1. Cache persistente — `data/cache.json`
 
-Gerenciado pela classe `NormalizedCache` (`src/cache.js`). É o **único estado persistido em disco**.
+Gerenciado pela classe `NormalizedCache` (`src/cache.js`). Persistido em disco
+(local) ou S3 (produção), junto com `prefs.json`.
 
 ```jsonc
 {
@@ -148,16 +149,23 @@ RatingsResult = {
 
 ---
 
-## 4. Preferências de usuários (in-memory)
+## 4. Preferências de usuários (persistidas)
 
-Estrutura temporária em `src/cinemas.js`:
+Gerenciadas em `src/cinemas.js`. Mesmo dual-backend do cache:
 
-```js
-// Map<chatId, theaterId>
-// Ex.: { 123456789: "1162", 987654321: "924" }
+- Local: `data/prefs.json`
+- Produção / testes S3: objeto `PREFS_KEY` (padrão `prefs.json`)
+
+```jsonc
+{
+  "123456789": "1162",
+  "987654321": "924"
+}
 ```
 
-⚠️ **Não persistido** — o usuário precisa reselecionar o cinema após reinício do bot.
+Chaves são sempre `String(chatId)`. `setUserCinema` faz write-through; a BotFunction
+chama `loadPrefs()` no início de **cada** invoke para compartilhar a escolha entre
+instâncias Lambda.
 
 ---
 
@@ -166,9 +174,12 @@ Estrutura temporária em `src/cinemas.js`:
 | Variável            | Obrigatória | Padrão    | Descrição                                    |
 | ------------------- | ----------- | --------- | -------------------------------------------- |
 | `TELEGRAM_BOT_TOKEN` | Sim        | —         | Token do bot (via @BotFather).              |
-| `PORT`              | Não         | `10000`   | Porta do Express (health check).             |
+| `PORT`              | Não         | `10000`   | Porta do Express (health check, polling local). |
 | `OMDb_API_KEY`      | Não         | —         | Busca IMDb/RT.                               |
 | `TMDB_API_KEY`      | Não         | —         | Fallback TMDb quando OMDb falha.            |
-| `S3_BUCKET`         | Não (Lambda) | —    | Bucket S3 para cache persistente (prod).     |
-| `CACHE_KEY`         | Não (Lambda) | `cache.json` | Chave do S3 para o arquivo de cache.     |
-| `AWS_REGION`        | Não (Lambda) | —    | Região AWS para o S3Client.                  |
+| `S3_BUCKET`         | Não*        | —         | Bucket do cache e prefs (*SAM em produção). |
+| `CACHE_KEY`         | Não         | `cache.json` | Chave do objeto de cache no S3.          |
+| `PREFS_KEY`         | Não         | `prefs.json` | Chave do objeto de preferências no S3.   |
+| `WEBHOOK_URL`       | Não*        | —         | URL do webhook (*SAM na FetchFunction: `…/prod/webhook`). |
+| `AWS_REGION`        | Não         | —         | Região do S3Client (Lambda injeta).         |
+| `AWS_ENDPOINT_URL`  | Não         | —         | Endpoint S3 customizado (LocalStack nos testes). |
