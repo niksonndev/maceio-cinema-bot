@@ -1,62 +1,62 @@
 # Deploy
 
-> Guia completo para deploy e operação do bot. O método primário é **AWS SAM**
-> (Lambda + API Gateway + EventBridge + S3). O deploy no Render está disponível
-> como referência histórica (legado).
+> Complete guide for deploying and operating the bot. The primary method is **AWS SAM**
+> (Lambda + API Gateway + EventBridge + S3). Render deploy is available
+> as historical reference (legacy).
 
-## Deploy via AWS SAM (primário)
+## Deploy via AWS SAM (primary)
 
-### Visão geral
+### Overview
 
-| Item | Detalhe |
+| Item | Detail |
 |---|---|
 | IaC | AWS SAM (`template.yaml`) |
 | Runtime | AWS Lambda (Node.js 22.x) |
 | HTTP | Amazon API Gateway — HTTP API (`POST /webhook`) |
-| Agendamento | Amazon EventBridge (`cron(0 3 * * ? *)` — meia-noite Maceió) |
+| Schedule | Amazon EventBridge (`cron(0 3 * * ? *)` — midnight Maceió) |
 | Cache | Amazon S3 (`cache.json` + `prefs.json`) |
 | Handlers | `dist/lambda.handler`, `dist/lambda.fetchHandler` |
-| Scripts npm | `sam:build` (`tsc` + `sam build`), `sam:deploy`, `sam:warm`, `sam:local` |
+| npm scripts | `sam:build` (`tsc` + `sam build`), `sam:deploy`, `sam:warm`, `sam:local` |
 
-### Pré-requisitos
+### Prerequisites
 
-- AWS CLI configurado (`aws configure` → `aws sts get-caller-identity`)
-- [SAM CLI](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam_cli.html) instalado
-- IAM com permissão para criar Lambda, API Gateway, S3, EventBridge, IAM roles (`CAPABILITY_IAM`)
-- `TELEGRAM_BOT_TOKEN` (e opcionalmente OMDb/TMDb)
+- AWS CLI configured (`aws configure` → `aws sts get-caller-identity`)
+- [SAM CLI](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam_cli.html) installed
+- IAM with permission to create Lambda, API Gateway, S3, EventBridge, IAM roles (`CAPABILITY_IAM`)
+- `TELEGRAM_BOT_TOKEN` (and optionally OMDb/TMDb)
 
 ### 1. Build
 
 ```bash
 sam validate
-npm run sam:build   # tsc → dist/ então sam build
+npm run sam:build   # tsc → dist/ then sam build
 ```
 
-### 2. Deploy (primeira vez — modo guiado)
+### 2. Deploy (first time — guided mode)
 
 ```bash
-sam deploy --guided   # ou: npm run sam:deploy (sem o --guided)
+sam deploy --guided   # or: npm run sam:deploy (without --guided)
 ```
 
-| Prompt | Sugerido |
+| Prompt | Suggested |
 |---|---|
 | `Stack name` | `maceio-cine-bot` |
-| `AWS Region` | ex.: `us-east-1` ou `sa-east-1` |
-| `TelegramBotToken` | token do bot (via @BotFather) |
-| `OMDbApiKey` | opcional |
-| `TMDbApiKey` | opcional |
+| `AWS Region` | e.g. `us-east-1` or `sa-east-1` |
+| `TelegramBotToken` | bot token (via @BotFather) |
+| `OMDbApiKey` | optional |
+| `TMDbApiKey` | optional |
 
-O output `WebhookUrl` e a env `WEBHOOK_URL` da **FetchFunction** usam
-`${HttpApi.ApiEndpoint}/prod/webhook` (o stage `prod` faz parte do path).
-Não colocamos `WEBHOOK_URL` na BotFunction: referenciar o `HttpApi` na mesma
-função que integra com ele gera dependência circular no CloudFormation.
+The `WebhookUrl` output and the **FetchFunction** `WEBHOOK_URL` env use
+`${HttpApi.ApiEndpoint}/prod/webhook` (the `prod` stage is part of the path).
+We do not put `WEBHOOK_URL` on BotFunction: referencing `HttpApi` on the same
+function that integrates with it creates a circular dependency in CloudFormation.
 
-A FetchFunction chama `bot.setWebHook()` (cron diário ou `npm run sam:warm`).
-A URL só muda se o stack (ou o `HttpApi`) for recriado.
+FetchFunction calls `bot.setWebHook()` (daily cron or `npm run sam:warm`).
+The URL only changes if the stack (or `HttpApi`) is recreated.
 
-### 3. Registrar / verificar o webhook no Telegram
+### 3. Register / verify the webhook on Telegram
 
-Após o deploy, invoque a FetchFunction uma vez (cache warm + `setWebHook`):
+After deploy, invoke FetchFunction once (cache warm + `setWebHook`):
 
 ```bash
 set -a && source .env && set +a
@@ -65,8 +65,8 @@ npm run sam:warm
 curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo"
 ```
 
-O `url` deve ser o output `WebhookUrl` (termina em `/prod/webhook`), sem
-`last_error_message`. Alternativa manual:
+The `url` should be the `WebhookUrl` output (ends in `/prod/webhook`), with no
+`last_error_message`. Manual alternative:
 
 ```bash
 WEBHOOK=$(aws cloudformation describe-stacks \
@@ -79,33 +79,33 @@ curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
   -F "url=${WEBHOOK}"
 ```
 
-### 4. Cutover (sair do Render / polling)
+### 4. Cutover (leave Render / polling)
 
-Ordem importa:
+Order matters:
 
-1. `sam deploy` com sucesso
-2. `npm run sam:warm` (warm + `setWebHook`) e confirmar `getWebhookInfo`
-3. Smoke test no Telegram (`/start`, escolher cinema, `/hoje`, `/proximos`)
-4. Confirmar objetos no S3 (`CacheBucketName`: `cache.json` e `prefs.json` após uso)
-5. **Só então** suspender/apagar o Web Service no Render e parar qualquer `bot:listen` com o mesmo token
+1. Successful `sam deploy`
+2. `npm run sam:warm` (warm + `setWebHook`) and confirm `getWebhookInfo`
+3. Smoke test on Telegram (`/start`, pick cinema, `/hoje`, `/proximos`)
+4. Confirm S3 objects (`CacheBucketName`: `cache.json` and `prefs.json` after use)
+5. **Only then** suspend/delete the Render Web Service and stop any `bot:listen` with the same token
 
-### 5. Deploys subsequentes
+### 5. Subsequent deploys
 
 ```bash
 npm run sam:build && sam deploy
 ```
 
-### 6. Desenvolvimento / teste local do SAM
+### 6. Local SAM development / testing
 
-Requer Docker (imagens Lambda do SAM):
+Requires Docker (SAM Lambda images):
 
 ```bash
-npm test              # Vitest em Docker Compose + LocalStack
-npm run sam:local     # sam build + invoke por evento em events/
+npm test              # Vitest in Docker Compose + LocalStack
+npm run sam:local     # sam build + invoke per event in events/
 sam local start-api
 ```
 
-### Configuração (`samconfig.toml`)
+### Configuration (`samconfig.toml`)
 
 ```toml
 version = 0.1
@@ -117,30 +117,30 @@ confirm_changeset = true
 region = "sa-east-1"
 ```
 
-Não é preciso passar `WebhookUrl` em `parameter_overrides` — a URL vem do
-`HttpApi` no `template.yaml`.
+No need to pass `WebhookUrl` in `parameter_overrides` — the URL comes from
+`HttpApi` in `template.yaml`.
 
 ### CI/CD (GitHub Actions)
 
-O workflow [`.github/workflows/ci-cd.yml`](../.github/workflows/ci-cd.yml) roda em:
+The [`.github/workflows/ci-cd.yml`](../.github/workflows/ci-cd.yml) workflow runs on:
 
-- **Pull request para `main`:** lint, typecheck e testes (Docker + LocalStack). Sem deploy.
-- **Push para `main`** (inclui merge de PR): os mesmos checks, depois `sam deploy` e `sam:warm`.
+- **Pull request to `main`:** lint, typecheck, and tests (Docker + LocalStack). No deploy.
+- **Push to `main`** (including PR merge): the same checks, then `sam deploy` and `sam:warm`.
 
-Autenticação AWS é via **OIDC** (`aws-actions/configure-aws-credentials`), sem access keys de longa duração.
+AWS auth is via **OIDC** (`aws-actions/configure-aws-credentials`), with no long-lived access keys.
 
-#### Secrets e variáveis no repositório
+#### Repository secrets and variables
 
-| Nome | Onde | Uso |
+| Name | Where | Use |
 | --- | --- | --- |
-| `AWS_ROLE_ARN` | Variable ou secret | ARN da role IAM assumida pelo workflow (`sa-east-1`) |
-| `TELEGRAM_BOT_TOKEN` | Secret | Parâmetro SAM `TelegramBotToken` |
-| `OMDb_API_KEY` | Secret (opcional) | Parâmetro SAM `OMDbApiKey` |
-| `TMDB_API_KEY` | Secret (opcional) | Parâmetro SAM `TMDbApiKey` |
+| `AWS_ROLE_ARN` | Variable or secret | ARN of the IAM role assumed by the workflow (`sa-east-1`) |
+| `TELEGRAM_BOT_TOKEN` | Secret | SAM parameter `TelegramBotToken` |
+| `OMDb_API_KEY` | Secret (optional) | SAM parameter `OMDbApiKey` |
+| `TMDB_API_KEY` | Secret (optional) | SAM parameter `TMDbApiKey` |
 
-A role deve confiar no provedor OIDC `token.actions.githubusercontent.com`, restrita a este repositório e a `ref:refs/heads/main`, com permissões equivalentes ao deploy guiado (CloudFormation, SAM S3, Lambda, API Gateway, EventBridge, IAM).
+The role must trust the OIDC provider `token.actions.githubusercontent.com`, restricted to this repository and `ref:refs/heads/main`, with permissions equivalent to guided deploy (CloudFormation, SAM S3, Lambda, API Gateway, EventBridge, IAM).
 
-Esboço de trust policy da role:
+Role trust policy sketch:
 
 ```json
 {
@@ -163,39 +163,39 @@ Esboço de trust policy da role:
 }
 ```
 
-Substitua `<ACCOUNT_ID>`, `<OWNER>` e `<REPO>`. Também é preciso criar o identity provider OIDC da AWS para GitHub se ainda não existir.
+Replace `<ACCOUNT_ID>`, `<OWNER>`, and `<REPO>`. You also need to create the AWS OIDC identity provider for GitHub if it does not already exist.
 
-Deploys manuais (`npm run sam:deploy`) continuam válidos; o `confirm_changeset` do `samconfig.toml` aplica só ao CLI local. O workflow passa `--no-confirm-changeset --no-fail-on-empty-changeset`.
+Manual deploys (`npm run sam:deploy`) remain valid; `confirm_changeset` in `samconfig.toml` applies only to the local CLI. The workflow passes `--no-confirm-changeset --no-fail-on-empty-changeset`.
 
-### Recursos do `template.yaml`
+### `template.yaml` resources
 
-- `CacheBucket` — S3 (nome gerado pela CloudFormation)
-- `HttpApi` — HTTP API (`StageName: prod`) com rota `POST /webhook`
-- `BotFunction` — webhook + `S3CrudPolicy` (sem `WEBHOOK_URL` — evita ciclo CFN); `PREFS_KEY`
-- `FetchFunction` — cron diário + `WEBHOOK_URL` (`…/prod/webhook`) + `S3CrudPolicy`
+- `CacheBucket` — S3 (name generated by CloudFormation)
+- `HttpApi` — HTTP API (`StageName: prod`) with `POST /webhook` route
+- `BotFunction` — webhook + `S3CrudPolicy` (no `WEBHOOK_URL` — avoids CFN cycle); `PREFS_KEY`
+- `FetchFunction` — daily cron + `WEBHOOK_URL` (`…/prod/webhook`) + `S3CrudPolicy`
 - Outputs: `WebhookUrl` (`…/prod/webhook`), `FetchFunctionArn`, `CacheBucketName`
 
-### Verificação via curl
+### Verification via curl
 
 ```bash
 curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getMe"
 curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getMyCommands"
-# Produção: url = WebhookUrl do stack
+# Production: url = stack WebhookUrl
 curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo"
 ```
 
 ---
 
-## Deploy no Render (legado)
+## Deploy on Render (legacy)
 
-> Arquivado. Preferir AWS SAM acima.
+> Archived. Prefer AWS SAM above.
 
-| Item | Detalhe |
+| Item | Detail |
 | --- | --- |
-| Plataforma | Render Web Service |
+| Platform | Render Web Service |
 | Start | `npm run bot:listen` |
-| Cache | `data/cache.json` (efêmero no container) |
-| Keep-alive | Auto-ping via `RENDER_EXTERNAL_URL` (removido do código atual) |
+| Cache | `data/cache.json` (ephemeral in the container) |
+| Keep-alive | Auto-ping via `RENDER_EXTERNAL_URL` (removed from current code) |
 
-Útil apenas como referência histórica enquanto o serviço `cinesystem-scrapper.onrender.com`
-ainda existir. Após o cutover, pode ser desligado.
+Useful only as historical reference while the `cinesystem-scrapper.onrender.com`
+service still exists. After cutover, it can be shut down.

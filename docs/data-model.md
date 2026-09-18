@@ -1,11 +1,11 @@
-# Modelo de Dados
+# Data Model
 
-> Referência completa das estruturas de dados usadas internamente e persistidas.
+> Complete reference for the data structures used internally and persisted.
 
-## 1. Cache persistente — `data/cache.json`
+## 1. Persistent cache — `data/cache.json`
 
-Gerenciado pela classe `NormalizedCache` (`src/cache.ts`). Persistido em disco
-(local) ou S3 (produção), junto com `prefs.json`.
+Managed by the `NormalizedCache` class (`src/cache.ts`). Persisted to disk
+(local) or S3 (production), along with `prefs.json`.
 
 ```jsonc
 {
@@ -15,8 +15,8 @@ Gerenciado pela classe `NormalizedCache` (`src/cache.ts`). Persistido em disco
       "title": "Avatar: Fogo E Cinzas",
       "originalTitle": "Avatar: The Way of Water",
       "urlKey": "avatar-fogo-e-cinzas",
-      "duration": 192,            // minutos
-      "contentRating": "14",     // classificação etária (ex.: "14", "16", "L")
+      "duration": 192,            // minutes
+      "contentRating": "14",     // age rating (e.g. "14", "16", "L")
       "ratingColor": null,
       "genres": ["Ação", "Aventura"],
       "distributor": "20th Century Studios",
@@ -25,7 +25,7 @@ Gerenciado pela classe `NormalizedCache` (`src/cache.ts`). Persistido em disco
       "trailer": "https://...",
       "tags": ["3D"],
       "isReexhibition": false,
-      "inPreSale": false          // em pré-venda
+      "inPreSale": false          // in pre-sale
     }
   },
 
@@ -38,7 +38,7 @@ Gerenciado pela classe `NormalizedCache` (`src/cache.ts`). Persistido em disco
             "id": "sess_001",
             "movieId": 12345,
             "time": "14:30",
-            "price": 55.86,       // preço bruto (inteira)
+            "price": 55.86,       // raw full-price ticket
             "room": "Sala 5",
             "format": "2D",       // 2D | 3D | Cinépic | VIP
             "audio": "Dublado",   // Dublado | Legendado | null
@@ -74,49 +74,49 @@ Gerenciado pela classe `NormalizedCache` (`src/cache.ts`). Persistido em disco
     }
   },
 
-  "moviesUpdatedAt": "2026-08-19T10:30:00.000Z"  // última atualização de filmes estáticos
+  "moviesUpdatedAt": "2026-08-19T10:30:00.000Z"  // last static-movies update
 }
 ```
 
-### Campos por tipo
+### Fields by type
 
-#### `MovieStatic` (dados estáticos — raramente mudam)
+#### `MovieStatic` (static data — rarely changes)
 
-Extraído por `extractMovieStatic()` em `src/normalize.ts`. São idênticos independentemente de data/cinema.
+Extracted by `extractMovieStatic()` in `src/normalize.ts`. Identical regardless of date/cinema.
 
-#### `Session` (dados dinâmicos — mudam por dia/horário)
+#### `Session` (dynamic data — changes by day/time)
 
-Extraído por `extractSessions()` em `src/normalize.ts`. Cada sessão tem apenas os dados relevantes à data/teatro consultado.
+Extracted by `extractSessions()` in `src/normalize.ts`. Each session has only the data relevant to the queried date/theater.
 
-#### `UpcomingItem` (lançamentos futuros)
+#### `UpcomingItem` (future releases)
 
-Extraído por `normalizeUpcomingFromSessions()`. Identifica filmes que **ainda não estão em cartaz hoje** e que têm pré-venda ativa.
+Extracted by `normalizeUpcomingFromSessions()`. Identifies movies that are **not yet showing today** and have active pre-sale.
 
 ---
 
-## 2. Estrutura de exibição (denormalizada)
+## 2. Display structure (denormalized)
 
-Produzida pela função `denormalize(movies, sessions)` em `src/normalize.ts`. É o formato consumido pela camada de formatação (`format.ts`).
+Produced by `denormalize(movies, sessions)` in `src/normalize.ts`. This is the format consumed by the formatting layer (`format.ts`).
 
 ```js
 {
   id: 12345,
   title: "Avatar: Fogo E Cinzas",
   originalTitle: "Avatar: The Way of Water",
-  // ... demais campos de MovieStatic ...
+  // ... other MovieStatic fields ...
   duration: 192,
   genres: ["Ação", "Aventura"],
   poster: "https://...",
   backdrop: "https://...",
-  // campos adicionados por denormalize():
-  name: "Avatar: Fogo E Cinzas",     // alias de title
+  // fields added by denormalize():
+  name: "Avatar: Fogo E Cinzas",     // alias of title
   sessions: [
     {
       time: "14:30",
       sessionId: "sess_001",
       priceInteira: 55.86,
       priceMeia: 27.93,            // priceInteira / 2 (toFixed 2)
-      gratuito: false,             // true quando price é null/0
+      gratuito: false,             // true when price is null/0
       room: "Sala 5",
       format: "2D",
       audio: "Dublado"
@@ -125,13 +125,13 @@ Produzida pela função `denormalize(movies, sessions)` em `src/normalize.ts`. �
 }
 ```
 
-> 📌 `denormalize()` agrupa sessões por `movieId` e junta com os dados estáticos do filme, produzindo um array pronto para renderização no bot.
+> 📌 `denormalize()` groups sessions by `movieId` and joins them with the movie's static data, producing an array ready for bot rendering.
 
 ---
 
 ## 3. Ratings (in-memory)
 
-Estrutura temporária mantida em `src/ratings.ts`:
+Temporary structure held in `src/ratings.ts`:
 
 ```js
 // memoryCache: Map<string, { at: number, data: RatingsResult | null }>
@@ -139,22 +139,22 @@ Estrutura temporária mantida em `src/ratings.ts`:
 // TTL: 24h (CACHE_TTL_MS)
 
 RatingsResult = {
-  imdb: "7.5" | null,        // da OMDb
-  rottenTomatoes: "85%" | null, // da OMDb
-  tmdb: "7.3" | null        // fallback da TMDb
+  imdb: "7.5" | null,        // from OMDb
+  rottenTomatoes: "85%" | null, // from OMDb
+  tmdb: "7.3" | null        // TMDb fallback
 }
 ```
 
-⚠️ **Não persistido em disco** — perdido em reinício do processo.
+⚠️ **Not persisted to disk** — lost on process restart.
 
 ---
 
-## 4. Preferências de usuários (persistidas)
+## 4. User preferences (persisted)
 
-Gerenciadas em `src/cinemas.ts`. Mesmo dual-backend do cache:
+Managed in `src/cinemas.ts`. Same dual backend as the cache:
 
 - Local: `data/prefs.json`
-- Produção / testes S3: objeto `PREFS_KEY` (padrão `prefs.json`)
+- Production / S3 tests: object `PREFS_KEY` (default `prefs.json`)
 
 ```jsonc
 {
@@ -163,23 +163,23 @@ Gerenciadas em `src/cinemas.ts`. Mesmo dual-backend do cache:
 }
 ```
 
-Chaves são sempre `String(chatId)`. `setUserCinema` faz write-through; a BotFunction
-chama `loadPrefs()` no início de **cada** invoke para compartilhar a escolha entre
-instâncias Lambda.
+Keys are always `String(chatId)`. `setUserCinema` is write-through; BotFunction
+calls `loadPrefs()` at the start of **every** invoke so the choice is shared across
+Lambda instances.
 
 ---
 
-## 5. Variáveis de ambiente
+## 5. Environment variables
 
-| Variável            | Obrigatória | Padrão    | Descrição                                    |
+| Variable            | Required    | Default   | Description                                  |
 | ------------------- | ----------- | --------- | -------------------------------------------- |
-| `TELEGRAM_BOT_TOKEN` | Sim        | —         | Token do bot (via @BotFather).              |
-| `PORT`              | Não         | `10000`   | Porta do Express (health check, polling local). |
-| `OMDb_API_KEY`      | Não         | —         | Busca IMDb/RT.                               |
-| `TMDB_API_KEY`      | Não         | —         | Fallback TMDb quando OMDb falha.            |
-| `S3_BUCKET`         | Não*        | —         | Bucket do cache e prefs (*SAM em produção). |
-| `CACHE_KEY`         | Não         | `cache.json` | Chave do objeto de cache no S3.          |
-| `PREFS_KEY`         | Não         | `prefs.json` | Chave do objeto de preferências no S3.   |
-| `WEBHOOK_URL`       | Não*        | —         | URL do webhook (*SAM na FetchFunction: `…/prod/webhook`). |
-| `AWS_REGION`        | Não         | —         | Região do S3Client (Lambda injeta).         |
-| `AWS_ENDPOINT_URL`  | Não         | —         | Endpoint S3 customizado (LocalStack nos testes). |
+| `TELEGRAM_BOT_TOKEN` | Yes        | —         | Bot token (via @BotFather).                 |
+| `PORT`              | No          | `10000`   | Express port (health check, local polling). |
+| `OMDb_API_KEY`      | No          | —         | IMDb/RT lookup.                              |
+| `TMDB_API_KEY`      | No          | —         | TMDb fallback when OMDb fails.              |
+| `S3_BUCKET`         | No*         | —         | Cache and prefs bucket (*SAM in production). |
+| `CACHE_KEY`         | No          | `cache.json` | S3 cache object key.                     |
+| `PREFS_KEY`         | No          | `prefs.json` | S3 prefs object key.                     |
+| `WEBHOOK_URL`       | No*         | —         | Webhook URL (*SAM on FetchFunction: `…/prod/webhook`). |
+| `AWS_REGION`        | No          | —         | S3Client region (injected by Lambda).       |
+| `AWS_ENDPOINT_URL`  | No          | —         | Custom S3 endpoint (LocalStack in tests).   |

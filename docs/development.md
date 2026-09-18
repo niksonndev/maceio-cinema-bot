@@ -1,127 +1,127 @@
-# Development — Como rodar localmente
+# Development — Running locally
 
-> Guia para desenvolvedores que desejam rodar, testar e debugar o projeto localmente.
+> Guide for developers who want to run, test, and debug the project locally.
 
-## Pré-requisitos
+## Prerequisites
 
-| Ferramenta  | Versão / notas |
-| ----------- | -------------- |
-| TypeScript  | ^5 (compila para `dist/` no SAM) |
-| Node.js     | >= 20 (22 no Docker de testes / Lambda) |
+| Tool        | Version / notes |
+| ----------- | --------------- |
+| TypeScript  | ^5 (compiles to `dist/` for SAM) |
+| Node.js     | >= 20 (22 in test Docker / Lambda) |
 | npm         | >= 10          |
-| Docker      | **Obrigatório para `npm test`** e para `sam local invoke` |
-| AWS SAM CLI | Para `sam validate` / `sam build` / deploy / `sam:local` |
-| AWS CLI     | Para deploy e `sam:warm` |
+| Docker      | **Required for `npm test`** and for `sam local invoke` |
+| AWS SAM CLI | For `sam validate` / `sam build` / deploy / `sam:local` |
+| AWS CLI     | For deploy and `sam:warm` |
 
-## 1. Clone e instale
+## 1. Clone and install
 
 ```bash
 git clone https://github.com/seu-usuario/maceio-cinema-bot.git
 cd maceio-cinema-bot
 
 npm install
-# ou, para instalação determinística:
+# or, for a deterministic install:
 npm ci
 ```
 
-## 2. Configure variáveis de ambiente
+## 2. Configure environment variables
 
 ```bash
 cp .env.example .env
 ```
 
-Edite `.env`:
+Edit `.env`:
 
 ```env
-TELEGRAM_BOT_TOKEN=seu_token_aqui        # obrigatório para o bot (via @BotFather)
-OMDb_API_KEY=sua_chave_omdb              # opcional (notas IMDb/RT)
-TMDB_API_KEY=sua_chave_tmdb              # opcional (fallback TMDb)
-# PORT = 10000                           # opcional, padrão local
-# S3_BUCKET=                             # só se for testar cache S3 localmente
+TELEGRAM_BOT_TOKEN=your_token_here        # required for the bot (via @BotFather)
+OMDb_API_KEY=your_omdb_key                # optional (IMDb/RT ratings)
+TMDB_API_KEY=your_tmdb_key                # optional (TMDb fallback)
+# PORT = 10000                            # optional, local default
+# S3_BUCKET=                              # only if testing S3 cache locally
 # CACHE_KEY=cache.json
 # PREFS_KEY=prefs.json
 ```
 
-> 💡 Apenas `TELEGRAM_BOT_TOKEN` é obrigatório para `npm run bot:listen`.
-> A CLI (`npm start`) funciona **sem nenhum token**.
+> 💡 Only `TELEGRAM_BOT_TOKEN` is required for `npm run bot:listen`.
+> The CLI (`npm start`) works **with no tokens**.
 
 ## 3. Scripts
 
-| Script             | Comando               | Descrição                                                     |
+| Script             | Command               | Description                                                   |
 | ------------------ | --------------------- | ------------------------------------------------------------- |
-| `start`            | `tsx src/index.ts`    | CLI — valida a pipeline (fetch + console). Sem tokens.        |
-| `bot:listen`       | `tsx src/bot.ts`      | Bot Telegram **local** (polling) + Express health check.      |
-| `build`            | `tsc -p tsconfig.json`| Compila `src/` → `dist/` (necessário para SAM).               |
-| `typecheck`        | `tsc --noEmit`        | Checagem TypeScript de `src/` e `test/`.                      |
-| `test`             | Docker Compose        | Vitest (Node 22 + LocalStack S3). Exige Docker.               |
+| `start`            | `tsx src/index.ts`    | CLI — validates the pipeline (fetch + console). No tokens.    |
+| `bot:listen`       | `tsx src/bot.ts`      | **Local** Telegram bot (polling) + Express health check.      |
+| `build`            | `tsc -p tsconfig.json`| Compiles `src/` → `dist/` (required for SAM).                 |
+| `typecheck`        | `tsc --noEmit`        | TypeScript check for `src/` and `test/`.                      |
+| `test`             | Docker Compose        | Vitest (Node 22 + LocalStack S3). Requires Docker.            |
 | `lint`             | `eslint src/ test/`   | Lint (ESLint + Prettier).                                     |
-| `lint:fix`         | `eslint src/ test/ --fix` | Lint + correção automática.                               |
-| `format`           | `prettier --write src/ test/` | Formatação automática.                              |
-| `format:check`     | `prettier --check src/ test/` | Verifica formatação.                                |
-| `sam:build`        | `npm run build && sam build` | Compila TS e empacota a aplicação SAM.               |
-| `sam:deploy`       | `sam deploy`          | Publica o stack (exige AWS configurado).                      |
-| `sam:warm`         | `scripts/sam-warm.sh` | Invoca FetchFunction (webhook + cache).                       |
-| `sam:local`        | `scripts/sam-local.sh`| `sam local invoke` por evento (Docker).                       |
+| `lint:fix`         | `eslint src/ test/ --fix` | Lint + auto-fix.                                       |
+| `format`           | `prettier --write src/ test/` | Auto-format.                                        |
+| `format:check`     | `prettier --check src/ test/` | Verify formatting.                                  |
+| `sam:build`        | `npm run build && sam build` | Compiles TS and packages the SAM application.          |
+| `sam:deploy`       | `sam deploy`          | Publishes the stack (requires AWS configured).                |
+| `sam:warm`         | `scripts/sam-warm.sh` | Invokes FetchFunction (webhook + cache).                      |
+| `sam:local`        | `scripts/sam-local.sh`| `sam local invoke` per event (Docker).                        |
 
-## 4. Como validar a pipeline sem Telegram
+## 4. Validate the pipeline without Telegram
 
 ```bash
 npm start
 ```
 
-Isso executa `src/index.ts`, que:
-1. Faz fetch da programação de hoje (Cinesystem, teatro `1162`).
-2. Normaliza os dados.
-3. Imprime no console a lista de filmes e sessões.
+This runs `src/index.ts`, which:
+1. Fetches today's schedule (Cinesystem, theater `1162`).
+2. Normalizes the data.
+3. Prints the list of movies and sessions to the console.
 
-Este é o método **recomendado** para validar que a codebase funciona — não requer
-nenhum token.
+This is the **recommended** way to verify the codebase works — it requires
+no tokens.
 
-## 5. Testes (Docker)
+## 5. Tests (Docker)
 
 ```bash
 npm test
 ```
 
-Sobe LocalStack (S3) + um container `node:22-bookworm` quando o Docker está
-disponível (`npm run test:docker` força esse caminho). Sem Docker, `npm test`
-cai para Vitest no host (prefs em arquivo temporário). Cobre `/start`, `/hoje`,
-`/proximos`, `/cinemas`, `/atualizar`, callbacks, persistência de prefs e o
-await do handler Lambda.
+Starts LocalStack (S3) + a `node:22-bookworm` container when Docker is
+available (`npm run test:docker` forces that path). Without Docker, `npm test`
+falls back to Vitest on the host (prefs in a temp file). Covers `/start`, `/hoje`,
+`/proximos`, `/cinemas`, `/atualizar`, callbacks, prefs persistence, and the
+Lambda handler await.
 
-Não usa a API do Ingresso.com nem o Telegram de verdade (bot e data layer são mockados,
-exceto o round-trip S3 de prefs).
+Does not call the real Ingresso.com API or Telegram (bot and data layer are mocked,
+except the S3 prefs round-trip).
 
-Smoke extra no runtime Lambda (não valida entrega no Telegram):
+Extra Lambda runtime smoke (does not validate Telegram delivery):
 
 ```bash
 npm run sam:local
 ```
 
-## 6. Como rodar o bot (polling local)
+## 6. Run the bot (local polling)
 
 ```bash
 npm run bot:listen
 ```
 
-- O bot inicia em **polling mode** (sem webhook).
-- Health check disponível em `http://localhost:10000/`.
-- No Telegram, envie `/start` e escolha um cinema.
-- **Não** use o mesmo token com webhook de produção ativo.
+- The bot starts in **polling mode** (no webhook).
+- Health check available at `http://localhost:10000/`.
+- In Telegram, send `/start` and pick a cinema.
+- **Do not** use the same token while a production webhook is active.
 
-### Debug: verificar conexão
+### Debug: verify connection
 
 ```bash
 curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getMe"
 curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getMyCommands"
-# Polling local: url deve estar vazia
+# Local polling: url should be empty
 curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo"
 curl -s http://localhost:10000/
 ```
 
-## 7. SAM local (opcional)
+## 7. SAM local (optional)
 
-Requer SAM CLI + Docker:
+Requires SAM CLI + Docker:
 
 ```bash
 sam validate
@@ -130,7 +130,7 @@ npm run sam:local
 sam local start-api
 ```
 
-## 8. Lint e formatação
+## 8. Lint and formatting
 
 ```bash
 npm run lint
@@ -140,29 +140,29 @@ npm run format
 npm run format:check
 ```
 
-## 9. Estrutura de diretórios
+## 9. Directory structure
 
 ```
 maceio-cinema-bot/
 ├── src/
 │   ├── api.ts
 │   ├── normalize.ts
-│   ├── cache.ts            # arquivo local ou S3
+│   ├── cache.ts            # local file or S3
 │   ├── data.ts
-│   ├── cinemas.ts          # lista de cinemas + prefs persistidas
+│   ├── cinemas.ts          # cinema list + persisted prefs
 │   ├── format.ts
 │   ├── ratings.ts
 │   ├── keyboards.ts
-│   ├── handlers.ts         # handleUpdate (polling e webhook)
-│   ├── bot.ts              # polling local
-│   ├── lambda.ts           # webhook + fetchHandler (produção)
+│   ├── handlers.ts         # handleUpdate (polling and webhook)
+│   ├── bot.ts              # local polling
+│   ├── lambda.ts           # webhook + fetchHandler (production)
 │   ├── types.ts
 │   └── index.ts
-├── test/                   # Vitest (rodado via Docker Compose)
-├── dist/                   # emit tsc (não commitado)
+├── test/                   # Vitest (run via Docker Compose)
+├── dist/                   # tsc emit (not committed)
 ├── events/
 │   ├── webhook-event.json
-│   ├── env.json            # env dummy para sam local
+│   ├── env.json            # dummy env for sam local
 │   ├── commands/
 │   └── callbacks/
 ├── scripts/
@@ -171,7 +171,7 @@ maceio-cinema-bot/
 ├── .github/workflows/ci-cd.yml
 ├── docker-compose.test.yml
 ├── docs/
-├── data/                   # runtime local (não commitado)
+├── data/                   # local runtime (not committed)
 ├── template.yaml           # AWS SAM
 ├── samconfig.toml
 ├── tsconfig.json
@@ -181,30 +181,30 @@ maceio-cinema-bot/
 └── README.md
 ```
 
-## 10. Fluxo de desenvolvimento recomendado
+## 10. Recommended development flow
 
 ```bash
-# 1. Valida pipeline sem Telegram
+# 1. Validate pipeline without Telegram
 npm start
 
-# 2. Testes (Docker)
+# 2. Tests (Docker)
 npm test
 
 # 3. Lint + format
 npm run lint:fix
 npm run format
 
-# 4. Roda o bot localmente (se o webhook de prod estiver off)
+# 4. Run the bot locally (if prod webhook is off)
 npm run bot:listen
 
-# 5. Valida o template SAM
+# 5. Validate the SAM template
 sam validate && npm run sam:build
 ```
 
-## 11. Observações
+## 11. Notes
 
-- **Nenhum banco de dados** — estado em `data/cache.json` + `data/prefs.json` (local) ou S3 (produção). Ratings em Map em memória.
-- O diretório `data/` é criado automaticamente na primeira execução local.
-- O cache de sessões expira na virada do dia (fuso `America/Maceio`).
-- Em produção o warm diário é feito pelo EventBridge → `fetchHandler`.
-- Preferências de cinema sobrevivem a cold start / outra instância Lambda porque vão para S3.
+- **No database** — state in `data/cache.json` + `data/prefs.json` (local) or S3 (production). Ratings in an in-memory Map.
+- The `data/` directory is created automatically on the first local run.
+- Session cache expires at midnight (`America/Maceio` timezone).
+- In production, daily warm is done by EventBridge → `fetchHandler`.
+- Cinema preferences survive cold starts / other Lambda instances because they go to S3.

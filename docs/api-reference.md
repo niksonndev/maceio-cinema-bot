@@ -1,8 +1,8 @@
 # API Reference — Ingresso.com
 
-> Referência da API pública do Ingresso.com consumida pelo bot.
+> Reference for the public Ingresso.com API consumed by the bot.
 
-## Configuração base
+## Base configuration
 
 ```ts
 // src/api.ts
@@ -22,37 +22,37 @@ const HEADERS = {
 };
 ```
 
-A API é **pública e não exige key**. Os headers browser-like evitam bloqueios.
+The API is **public and requires no key**. Browser-like headers help avoid blocks.
 
 ## Endpoints
 
 ### 1. `GET /v0/sessions/city/{cityId}/theater/{theaterId}/partnership/home/groupBy/sessionType?date={date}`
 
-Retorna sessões de um cinema para uma data específica, agrupadas por tipo de sessão.
+Returns sessions for a cinema on a specific date, grouped by session type.
 
-| Parâmetro  | Tipo   | Descrição                              | Exemplo          |
+| Parameter  | Type   | Description                            | Example          |
 | ---------- | ------ | -------------------------------------- | ---------------- |
-| `cityId`   | number | ID da cidade (53 = Maceió)            | `53`             |
-| `theaterId`| number | ID do cinema                          | `1162`, `1230`, `924` |
-| `date`     | string | Data no formato `YYYY-MM-DD`          | `2026-08-19`     |
+| `cityId`   | number | City ID (53 = Maceió)                 | `53`             |
+| `theaterId`| number | Cinema ID                             | `1162`, `1230`, `924` |
+| `date`     | string | Date in `YYYY-MM-DD` format           | `2026-08-19`     |
 
-**Consumido por:** `fetchNormalized()` → `normalizeSessionsResponse()`
+**Consumed by:** `fetchNormalized()` → `normalizeSessionsResponse()`
 
 ---
 
 ### 2. `GET /v0/sessions/city/{cityId}/theater/{theaterId}`
 
-Retorna todas as sessões de um cinema — para todas as datas (passado, hoje e futuro).
+Returns all sessions for a cinema — for all dates (past, today, and future).
 
-**Consumido por:** `fetchUpcoming()` → identifica lançamentos futuros em pré-venda.
+**Consumed by:** `fetchUpcoming()` → identifies future pre-sale releases.
 
-## Funções exportadas (`src/api.ts`)
+## Exported functions (`src/api.ts`)
 
 ### `fetchNormalized(date = null, theaterId = 1162)`
 
-- Resolve a data alvo: usa `date` se informado, senão data atual no fuso `America/Maceio`.
-- Faz o request ao endpoint 1.
-- Retorna dados normalizados:
+- Resolves the target date: uses `date` if provided, otherwise the current date in the `America/Maceio` timezone.
+- Requests endpoint 1.
+- Returns normalized data:
   ```ts
   {
     movies: Record<string, MovieStatic>,
@@ -64,36 +64,36 @@ Retorna todas as sessões de um cinema — para todas as datas (passado, hoje e 
 
 ### `fetchUpcoming(theaterId = 1162)`
 
-- Pega todas as datas do endpoint 2.
-- Filtra filmes **não em cartaz hoje** (`todayMovieIds`).
-- Filtra apenas os em **pré-venda** (`inPreSale === true`).
-- Retorna:
+- Fetches all dates from endpoint 2.
+- Filters movies **not currently showing today** (`todayMovieIds`).
+- Keeps only those in **pre-sale** (`inPreSale === true`).
+- Returns:
   ```ts
   { items: UpcomingItem[], fetchedAt: string }
   ```
 
 ---
 
-## Funções de normalização (`src/normalize.ts`)
+## Normalization functions (`src/normalize.ts`)
 
 ### `extractMovieStatic(raw)` → `MovieStatic`
-Extrai dados estáticos (imutáveis) de um filme cru da API.
+Extracts static (immutable) data from a raw API movie.
 
 ### `extractSessions(movieId, sessionTypes)` → `Session[]`
-Extrai sessões dinâmicas (horário, preço, sala, formato, áudio) de um filme.
+Extracts dynamic sessions (time, price, room, format, audio) from a movie.
 
 ### `normalizeSessionsResponse(apiResponse)`
-Normaliza a resposta completa do endpoint 1 em `{ movies, sessions, date, fetchedAt }`.
+Normalizes the full endpoint-1 response into `{ movies, sessions, date, fetchedAt }`.
 
 ### `normalizeUpcomingFromSessions(futureDates, todayMovieIds)` → `UpcomingItem[]`
-Identifica novos lançamentos a partir de datas futuras, excluindo filmes já em cartaz hoje.
+Identifies new releases from future dates, excluding movies already showing today.
 
 ### `denormalize(movies, sessions)` → `DisplayMovie[]`
-Reconstitui a visão de exibição: junta dados estáticos + sessões em um array pronto para a UI.
+Rebuilds the display view: joins static data + sessions into an array ready for the UI.
 
 ---
 
-## Teatros suportados
+## Supported theaters
 
 | `theaterId` | Cinema     | Shopping                    |
 | ----------- | ---------- | --------------------------- |
@@ -101,8 +101,8 @@ Reconstitui a visão de exibição: junta dados estáticos + sessões em um arra
 | `1230`      | Centerplex | Shopping Pátio Maceió       |
 | `924`       | Kinoplex   | Maceió Shopping             |
 
-## Utils de data (fuso `America/Maceio`)
+## Date utils (`America/Maceio` timezone)
 
-- `getMaceioDate(offsetDays = 0)` → `YYYY-MM-DD` do dia atual em Maceió (com offset).
-- `toMaceioDateStr(isoString)` → converte qualquer ISO string para `YYYY-MM-DD` em Maceió.
-- `getTodayInMaceioISO()` (em `api.js`) → data de hoje no formato `en-CA` (YYYY-MM-DD).
+- `getMaceioDate(offsetDays = 0)` → `YYYY-MM-DD` for the current day in Maceió (with offset).
+- `toMaceioDateStr(isoString)` → converts any ISO string to `YYYY-MM-DD` in Maceió.
+- `getTodayInMaceioISO()` (in `api.ts`) → today's date in `en-CA` format (YYYY-MM-DD).

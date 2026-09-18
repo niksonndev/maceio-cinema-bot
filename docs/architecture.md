@@ -1,16 +1,16 @@
-# Arquitetura
+# Architecture
 
-> Documentação técnica da arquitetura do **Maceió Cine Bot**.
+> Technical architecture documentation for **Maceió Cine Bot**.
 
-## Visão geral
+## Overview
 
-Aplicação TypeScript (Node.js, ES Modules) que consulta a API pública do Ingresso.com e
-expõe a programação de cinemas de Maceió via bot do Telegram. Sem banco de dados —
-usa **cache JSON** (`data/cache.json` localmente, ou **S3** quando `S3_BUCKET` está
-definido) e **preferências persistidas** (`data/prefs.json` / S3 `prefs.json`).
-Ratings continuam em Map em memória (TTL 24h).
+TypeScript application (Node.js, ES Modules) that queries the public Ingresso.com API
+and exposes Maceió cinema schedules via a Telegram bot. No database —
+uses a **JSON cache** (`data/cache.json` locally, or **S3** when `S3_BUCKET` is
+set) and **persisted preferences** (`data/prefs.json` / S3 `prefs.json`).
+Ratings stay in an in-memory Map (24h TTL).
 
-### Produção (AWS SAM)
+### Production (AWS SAM)
 
 ```
 Telegram ──POST /webhook──► API Gateway HTTP API ──► Lambda (dist/lambda.handler)
@@ -19,72 +19,72 @@ Telegram ──POST /webhook──► API Gateway HTTP API ──► Lambda (dis
                                                          └─► Ingresso.com API
 
 EventBridge (cron 03:00 UTC) ──► Lambda (dist/lambda.fetchHandler)
-                                      ├─► fetch + grava cache no S3
+                                      ├─► fetch + write cache to S3
                                       └─► setWebHook(WEBHOOK_URL)
 ```
 
-A BotFunction **não** define `WEBHOOK_URL` (isso criaria ciclo no CloudFormation
-com o HttpApi). A FetchFunction registra o webhook no Telegram.
+BotFunction does **not** set `WEBHOOK_URL` (that would create a CloudFormation
+cycle with HttpApi). FetchFunction registers the webhook with Telegram.
 
-Cada invoke da BotFunction recarrega cache e prefs do S3 e **aguarda**
-`handleUpdate()` antes de devolver HTTP 200.
+Each BotFunction invoke reloads cache and prefs from S3 and **awaits**
+`handleUpdate()` before returning HTTP 200.
 
-### Local / desenvolvimento (polling)
+### Local / development (polling)
 
 ```
 npm run bot:listen → src/bot.ts (polling + Express health check)
                          └─► cache.ts / cinemas.ts → data/cache.json + data/prefs.json
 ```
 
-Não rode polling local com o mesmo token enquanto o webhook de produção estiver ativo.
+Do not run local polling with the same token while the production webhook is active.
 
-## Módulos (`src/`)
+## Modules (`src/`)
 
-| Módulo          | Responsabilidade                                                                                |
+| Module          | Responsibility                                                                                  |
 | --------------- | ----------------------------------------------------------------------------------------------- |
-| `api.ts`        | Cliente HTTP (Axios) para a API pública do Ingresso.com. Busca sessões e lançamentos por `theaterId`. |
-| `normalize.ts`  | Separa dados **estáticos** de filmes dos **dinâmicos** de sessões. Contém `denormalize()`.      |
-| `cache.ts`      | Persistência JSON (arquivo ou S3): filmes, sessões por teatro/data, lançamentos.                |
-| `data.ts`       | Orquestra `cache ↔ api ↔ normalize` com lógica de cache hit antes de chamar a API.               |
-| `cinemas.ts`    | Definição dos 3 cinemas e preferências por usuário (arquivo local ou S3).                       |
-| `format.ts`     | Formatação de mensagens Markdown para Telegram (cards, preços, datas).                          |
-| `ratings.ts`    | Busca notas (IMDb/RT via OMDb, fallback TMDb) com cache em memória (TTL 24h).                   |
-| `keyboards.ts`  | Builders de teclados inline do Telegram.                                                        |
-| `handlers.ts`   | `handleUpdate` + comandos (`/start`, `/hoje`, `/proximos`, `/cinemas`, `/atualizar`) e callbacks. |
-| `bot.ts`        | Entry local: Telegram polling + Express health check + graceful shutdown.                       |
-| `lambda.ts`     | Entry produção: webhook (`handler`) + warm diário (`fetchHandler`).                             |
-| `index.ts`      | CLI para verificação manual (fetch + console). Sem token.                                       |
-| `types.ts`      | Tipos de domínio compartilhados.                                                                |
+| `api.ts`        | HTTP client (Axios) for the public Ingresso.com API. Fetches sessions and releases by `theaterId`. |
+| `normalize.ts`  | Separates **static** movie data from **dynamic** session data. Includes `denormalize()`.      |
+| `cache.ts`      | JSON persistence (file or S3): movies, sessions by theater/date, upcoming releases.             |
+| `data.ts`       | Orchestrates `cache ↔ api ↔ normalize` with cache-hit logic before calling the API.             |
+| `cinemas.ts`    | Definition of the 3 cinemas and per-user preferences (local file or S3).                        |
+| `format.ts`     | Markdown message formatting for Telegram (cards, prices, dates).                                |
+| `ratings.ts`    | Fetches ratings (IMDb/RT via OMDb, TMDb fallback) with in-memory cache (24h TTL).               |
+| `keyboards.ts`  | Telegram inline keyboard builders.                                                              |
+| `handlers.ts`   | `handleUpdate` + commands (`/start`, `/hoje`, `/proximos`, `/cinemas`, `/atualizar`) and callbacks. |
+| `bot.ts`        | Local entry: Telegram polling + Express health check + graceful shutdown.                       |
+| `lambda.ts`     | Production entry: webhook (`handler`) + daily warm (`fetchHandler`).                            |
+| `index.ts`      | CLI for manual verification (fetch + console). No token required.                               |
+| `types.ts`      | Shared domain types.                                                                            |
 
-## Fluxo de dados
+## Data flow
 
-### 1. Filmes de hoje (`/hoje`, `filmes_hoje`)
+### 1. Today's movies (`/hoje`, `filmes_hoje`)
 
 ```
 handlers.ts
   └─ getMoviesForDate(cache, date, theaterId)        ← src/data.ts
-       ├─ cache.getSessions(date, theaterId) → HIT? devolve do cache
+       ├─ cache.getSessions(date, theaterId) → HIT? return from cache
        └─ MISS → api.fetchNormalized(date, theaterId)
                     └─ normalize.normalizeSessionsResponse(raw)
-                         ├─ mergeMovies() → cache.movies (estático)
-                         ├─ setSessions()  → cache.sessions (dinâmico)
-                         └─ denormalize(movies, sessions) → array de filmes + sessões
-                        └─ format.formatSingleMovieCard() → mensagem Telegram
+                         ├─ mergeMovies() → cache.movies (static)
+                         ├─ setSessions()  → cache.sessions (dynamic)
+                         └─ denormalize(movies, sessions) → movies + sessions array
+                        └─ format.formatSingleMovieCard() → Telegram message
 ```
 
-### 2. Próximos lançamentos (`/proximos`, `proximos_lancamentos`)
+### 2. Upcoming releases (`/proximos`, `proximos_lancamentos`)
 
 ```
 handlers.ts
   └─ getUpcomingMovies(cache, theaterId)             ← src/data.ts
-       ├─ cache.getUpcoming(theaterId) → HIT? devolve do cache
+       ├─ cache.getUpcoming(theaterId) → HIT? return from cache
        └─ MISS → api.fetchUpcoming(theaterId)
                     └─ normalize.normalizeUpcomingFromSessions(futureDates, todayIds)
                          └─ setUpcoming() → cache.upcoming
-                        └─ format.formatSingleUpcomingCard() → mensagem Telegram
+                        └─ format.formatSingleUpcomingCard() → Telegram message
 ```
 
-## Teatros suportados
+## Supported theaters
 
 | `theaterId` | Cinema     | Shopping                    |
 | ----------- | ---------- | --------------------------- |
@@ -92,18 +92,18 @@ handlers.ts
 | `1230`      | Centerplex | Shopping Pátio Maceió       |
 | `924`       | Kinoplex   | Maceió Shopping             |
 
-ID da cidade na API: `53` (Maceió).
+City ID in the API: `53` (Maceió).
 
 ## Entry points (`package.json`)
 
-| Script              | Comando              | Propósito                                           |
+| Script              | Command              | Purpose                                             |
 | ------------------- | -------------------- | --------------------------------------------------- |
-| `npm start`         | `tsx src/index.ts`   | CLI — valida a pipeline (fetch + console). Sem token. |
-| `npm run bot:listen`| `tsx src/bot.ts`     | Bot local (polling) + Express health check. Exige `TELEGRAM_BOT_TOKEN`. |
-| `npm test`          | Docker Compose       | Suites Vitest (Node 22 + LocalStack S3). Exige Docker. |
-| `npm run typecheck` | `tsc --noEmit`       | Checagem TypeScript.                                |
-| `npm run build`     | `tsc -p tsconfig.json` | Compila `src/` → `dist/`.                         |
-| `npm run sam:build` | `npm run build && sam build` | Empacota a app SAM.                          |
-| `npm run sam:deploy`| `sam deploy`         | Publica o stack (exige credenciais AWS).            |
-| `npm run sam:warm`  | `scripts/sam-warm.sh`| Invoca FetchFunction (webhook + cache warm).        |
-| `npm run sam:local` | `scripts/sam-local.sh` | `sam local invoke` por evento (Docker).           |
+| `npm start`         | `tsx src/index.ts`   | CLI — validates the pipeline (fetch + console). No token. |
+| `npm run bot:listen`| `tsx src/bot.ts`     | Local bot (polling) + Express health check. Requires `TELEGRAM_BOT_TOKEN`. |
+| `npm test`          | Docker Compose       | Vitest suites (Node 22 + LocalStack S3). Requires Docker. |
+| `npm run typecheck` | `tsc --noEmit`       | TypeScript check.                                   |
+| `npm run build`     | `tsc -p tsconfig.json` | Compiles `src/` → `dist/`.                        |
+| `npm run sam:build` | `npm run build && sam build` | Packages the SAM app.                        |
+| `npm run sam:deploy`| `sam deploy`         | Deploys the stack (requires AWS credentials).       |
+| `npm run sam:warm`  | `scripts/sam-warm.sh`| Invokes FetchFunction (webhook + cache warm).       |
+| `npm run sam:local` | `scripts/sam-local.sh` | `sam local invoke` per event (Docker).            |
