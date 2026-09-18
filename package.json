@@ -3,10 +3,12 @@
   "version": "1.0.0",
   "description": "Bot de programação de cinemas em Maceió (Ingresso.com) para Telegram",
   "type": "module",
-  "main": "src/index.js",
+  "main": "dist/index.js",
   "scripts": {
-    "start": "node src/index.js",
-    "bot:listen": "node src/bot.js",
+    "start": "tsx src/index.ts",
+    "bot:listen": "tsx src/bot.ts",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
     "test": "bash scripts/test.sh",
     "test:docker": "docker compose -f docker-compose.test.yml run --rm --build test",
     "test:watch": "docker compose -f docker-compose.test.yml run --rm test sh -c \"npm ci && npx vitest\"",
@@ -14,7 +16,7 @@
     "lint:fix": "eslint src/ test/ --fix",
     "format": "prettier --write src/ test/",
     "format:check": "prettier --check src/ test/",
-    "sam:build": "sam build",
+    "sam:build": "npm run build && sam build",
     "sam:deploy": "sam deploy",
     "sam:warm": "bash scripts/sam-warm.sh",
     "sam:local": "bash scripts/sam-local.sh"
@@ -28,7 +30,7 @@
   "author": "",
   "license": "MIT",
   "files": [
-    "src/**/*",
+    "dist/**/*",
     "package.json",
     "package-lock.json"
   ],
@@ -41,10 +43,16 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@types/express": "^4.17.23",
+    "@types/node": "^24.5.2",
+    "@types/node-telegram-bot-api": "^0.64.11",
     "eslint": "^10.0.3",
     "eslint-config-prettier": "^10.1.8",
     "globals": "^17.4.0",
     "prettier": "^3.8.1",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.44.0",
     "vitest": "^3.2.7"
   }
 }
