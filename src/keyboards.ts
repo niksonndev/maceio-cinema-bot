@@ -3,12 +3,13 @@
  */
 
 import { CINEMAS } from './cinemas.js';
+import type { InlineKeyboardMarkup } from './types.js';
 
-export const getCinemaKeyboard = () => ({
+export const getCinemaKeyboard = (): InlineKeyboardMarkup => ({
   inline_keyboard: CINEMAS.map((c) => [{ text: c.label, callback_data: `cinema_${c.id}` }]),
 });
 
-export const getMainKeyboard = () => ({
+export const getMainKeyboard = (): InlineKeyboardMarkup => ({
   inline_keyboard: [
     [
       { text: '🎬 Filmes de Hoje', callback_data: 'filmes_hoje' },
@@ -19,8 +20,8 @@ export const getMainKeyboard = () => ({
   ],
 });
 
-export function getBackButtonMarkup(cinemaUrl) {
-  const rows = [];
+export function getBackButtonMarkup(cinemaUrl: string | null | undefined): InlineKeyboardMarkup {
+  const rows: InlineKeyboardMarkup['inline_keyboard'] = [];
   if (cinemaUrl) {
     rows.push([{ text: '🎫 Comprar Ingressos', url: cinemaUrl }]);
   }
@@ -31,11 +32,16 @@ export function getBackButtonMarkup(cinemaUrl) {
   return { inline_keyboard: rows };
 }
 
-export function getCarouselKeyboard(type, index, total, cinemaUrl) {
-  const rows = [];
+export function getCarouselKeyboard(
+  type: string,
+  index: number,
+  total: number,
+  cinemaUrl: string | null | undefined,
+): InlineKeyboardMarkup {
+  const rows: InlineKeyboardMarkup['inline_keyboard'] = [];
 
   if (total > 1) {
-    const nav = [];
+    const nav: InlineKeyboardMarkup['inline_keyboard'][number] = [];
     if (index > 0) {
       nav.push({
         text: '◀ Anterior',

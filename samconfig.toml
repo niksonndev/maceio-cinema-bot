@@ -1,0 +1,15 @@
+version = 0.1
+[default]
+[default.deploy]
+[default.deploy.parameters]
+stack_name = "maceio-cine-bot"
+capabilities = "CAPABILITY_IAM"
+resolve_s3 = true
+confirm_changeset = true
+s3_prefix = "maceio-cine-bot"
+region = "sa-east-1"
+disable_rollback = true
+image_repositories = []
+
+[default.global.parameters]
+region = "sa-east-1"

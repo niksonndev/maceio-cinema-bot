@@ -8,14 +8,16 @@
 
 ## 🟢 Status do Deploy
 
-O bot está **hospedado no [Render](https://render.com)** e permanece estável em produção.
+Produção alvo: **AWS SAM** (Lambda + API Gateway webhook + EventBridge + S3).
+Polling local (`npm run bot:listen`) é só para desenvolvimento.
 
 | Item | Detalhe |
 | --- | --- |
-| 🌐 **URL do serviço** | https://cinesystem-scrapper.onrender.com |
-| 📡 **Health check** | `GET https://cinesystem-scrapper.onrender.com/` — retorna status e timestamp em JSON |
-| 🔌 **Porta** | Dinâmica via `process.env.PORT` (fallback `10000`), conforme exigido pelo Render |
-| 📋 **Logs** | Health check e graceful shutdown (SIGTERM/SIGINT) para monitoramento da estabilidade do container |
+| ☁️ **IaC** | [`template.yaml`](template.yaml) (AWS SAM) |
+| 🔌 **Ingresso** | Telegram webhook → API Gateway `POST /webhook` → `dist/lambda.handler` |
+| 💾 **Cache** | S3 (`cache.json` + `prefs.json`) em produção; `data/*.json` em local |
+| ⏰ **Warm** | EventBridge cron diário → `dist/lambda.fetchHandler` |
+| 📋 **Guia** | [`docs/deployment.md`](docs/deployment.md) |
 
 ---
 
@@ -91,7 +93,8 @@ Bot:     🎬 PROGRAMAÇÃO
 
 | Tecnologia | Uso |
 | --- | --- |
-| **Node.js** | Runtime do bot e da CLI |
+| **Node.js 22** | Runtime (local, testes, Lambda) |
+| **TypeScript** | Código-fonte em `src/`; emit para `dist/` no SAM |
 | **Telegram Bot API** | Bot via [node-telegram-bot-api](https://github.com/yagop/node-telegram-bot-api) (modo polling) |
 | **Axios** | Requisições HTTP para a API do Ingresso.com |
 | **Express** | Servidor HTTP para health check (porta dinâmica) |
@@ -128,9 +131,9 @@ Edite o `.env` e defina o token do bot (obtido via [@BotFather](https://t.me/Bot
 TELEGRAM_BOT_TOKEN=seu_token_aqui
 ```
 
-Opcionalmente, defina `PORT` (padrão local: `10000`). No Render, a porta é injetada automaticamente.
+Opcionalmente, defina `PORT` (padrão local: `10000`).
 
-**4. Inicie o bot**
+**4. Inicie o bot** (polling local — não use o mesmo token da produção)
 
 ```bash
 npm run bot:listen
@@ -138,27 +141,35 @@ npm run bot:listen
 
 O bot ficará escutando comandos no Telegram. O health check estará em `http://localhost:10000/` (ou na porta definida em `PORT`).
 
+**5. Testes** (exige Docker)
+
+```bash
+npm test
+```
+
 ---
 
 ## 📂 Arquitetura
 
-O projeto é uma aplicação Node.js com 11 módulos em `src/`. Veja a
+O projeto é uma aplicação TypeScript (Node.js) com módulos em `src/`. Veja a
 [documentação completa de arquitetura](docs/architecture.md) para detalhes sobre
 fluxos de dados e responsabilidades.
 
 | Módulo          | Responsabilidade curta                                           |
 | --------------- | ---------------------------------------------------------------- |
-| `api.js`        | Cliente HTTP (Axios) para a API pública do Ingresso.com          |
-| `normalize.js`  | Separa dados estáticos de filmes dos dinâmicos de sessões        |
-| `cache.js`      | Cache JSON (`data/cache.json`) com expiração diária por cinema     |
-| `data.js`       | Orquestra cache ↔ API ↔ normalize (cache hit antes da API)        |
-| `cinemas.js`    | Definição dos 3 cinemas + preferências por usuário                |
-| `format.js`     | Formatação de mensagens Telegram (Markdown)                       |
-| `ratings.js`    | Notas IMDb/RT (OMDb) + fallback TMDb, cache 24h                   |
-| `keyboards.js`  | Builders de teclados inline do Telegram                           |
-| `handlers.js`   | Handlers de comandos e callbacks                                 |
-| `bot.js`        | Entry point (polling + Express + graceful shutdown)               |
-| `index.js`      | CLI para verificação rápida via terminal                          |
+| `api.ts`        | Cliente HTTP (Axios) para a API pública do Ingresso.com          |
+| `normalize.ts`  | Separa dados estáticos de filmes dos dinâmicos de sessões        |
+| `cache.ts`      | Cache JSON (arquivo local ou S3) com expiração diária por cinema |
+| `data.ts`       | Orquestra cache ↔ API ↔ normalize (cache hit antes da API)        |
+| `cinemas.ts`    | Definição dos 3 cinemas + preferências por usuário                |
+| `format.ts`     | Formatação de mensagens Telegram (Markdown)                       |
+| `ratings.ts`    | Notas IMDb/RT (OMDb) + fallback TMDb, cache 24h                   |
+| `keyboards.ts`  | Builders de teclados inline do Telegram                           |
+| `handlers.ts`   | Handlers de comandos e callbacks                                 |
+| `bot.ts`        | Entry local (polling + Express + graceful shutdown)               |
+| `lambda.ts`     | Entry produção (webhook Lambda + fetch/cache warm)                |
+| `index.ts`      | CLI para verificação rápida via terminal                          |
+| `types.ts`      | Tipos de domínio (cache, sessões, Telegram, BotLike)              |
 
 Veja também os documentos técnicos na pasta [`docs/`](./docs):
 
@@ -166,7 +177,7 @@ Veja também os documentos técnicos na pasta [`docs/`](./docs):
 - [`docs/data-model.md`](docs/data-model.md) — estrutura completa de `cache.json`
 - [`docs/caching.md`](docs/caching.md) — regras de expiração e TTL
 - [`docs/api-reference.md`](docs/api-reference.md) — endpoints e contratos
-- [`docs/deployment.md`](docs/deployment.md) — deploy no Render
+- [`docs/deployment.md`](docs/deployment.md) — deploy AWS SAM (Render legado)
 - [`docs/development.md`](docs/development.md) — como rodar localmente
 
 ---
@@ -176,30 +187,27 @@ Veja também os documentos técnicos na pasta [`docs/`](./docs):
 | Variável | Obrigatória | Padrão | Descrição |
 | --- | --- | --- | --- |
 | `TELEGRAM_BOT_TOKEN` | Sim | — | Token do bot obtido via @BotFather |
-| `PORT` | Não | `10000` | Porta do servidor (health check). No Render use a porta dinâmica `process.env.PORT` — o código já usa fallback `10000` |
-| `OMDb_API_KEY` | Não | — | Chave da [OMDb](https://www.omdbapi.com/apikey.aspx) para buscar notas do IMDb e Rotten Tomatoes. Se não definida, essas notas não são exibidas. |
-| `TMDB_API_KEY` | Não | — | Chave da [TMDb](https://www.themoviedb.org/settings/api). Usada como **fallback** para exibir nota TMDb quando a OMDb não retorna dados. |
+| `PORT` | Não | `10000` | Porta do Express (health check) no modo polling local |
+| `OMDb_API_KEY` | Não | — | Chave da [OMDb](https://www.omdbapi.com/apikey.aspx) para IMDb/RT |
+| `TMDB_API_KEY` | Não | — | Fallback [TMDb](https://www.themoviedb.org/settings/api) |
+| `S3_BUCKET` | Não* | — | Bucket do cache e prefs (*injetado pelo SAM em produção) |
+| `CACHE_KEY` | Não | `cache.json` | Chave do objeto de cache no S3 |
+| `PREFS_KEY` | Não | `prefs.json` | Chave do objeto de preferências no S3 |
+| `WEBHOOK_URL` | Não* | — | URL do webhook (*SAM na FetchFunction: `…/prod/webhook`); `setWebHook` no fetch |
 
 ---
 
-## 🐳 Docker
+## ☁️ Deploy (AWS SAM — Lambda + API Gateway)
+
+Deploy via **SAM**: Lambda + API Gateway (webhook) + EventBridge (cache warm) + S3.
+Preferências de cinema persistem em S3 (`prefs.json`).
+
+Veja o [guia completo](docs/deployment.md).
 
 ```bash
-docker build -t maceio-cine-bot .
-docker run -e TELEGRAM_BOT_TOKEN=seu_token maceio-cine-bot
+npm run sam:build
+sam deploy            # primeira vez (modo guiado) ou subsequente
 ```
-
----
-
-## ☁️ Deploy no Render
-
-O bot está hospedado no [Render](https://render.com). Veja o
-[guia completo de deploy](docs/deployment.md) para instruções detalhadas.
-
-Resumo rápido: crie um **Web Service** conectado ao repositório, configure
-`npm ci` como build command e `npm run bot:listen` como start command. O Render
-injectiona `PORT` automaticamente — o código já usa `process.env.PORT` com
-fallback `10000`.
 
 ---
 

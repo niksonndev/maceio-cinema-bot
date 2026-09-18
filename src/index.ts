@@ -4,17 +4,18 @@
  * CLI para consultar a programação do Cinesystem Maceió via API oficial.
  *
  * Uso:
- *   node src/index.js [data]
+ *   npx tsx src/index.ts [data]
  *
  * Exemplos:
- *   node src/index.js                 → hoje (segundo API / fuso de Maceió)
- *   node src/index.js 2026-02-23      → data específica (YYYY-MM-DD)
+ *   npm start                 → hoje (segundo API / fuso de Maceió)
+ *   npm start -- 2026-02-23   → data específica (YYYY-MM-DD)
  */
 
 import { fetchNormalized } from './api.js';
 import { denormalize } from './normalize.js';
+import { errorMessage } from './types.js';
 
-async function main() {
+async function main(): Promise<void> {
   const date = process.argv[2] || null;
 
   console.log('📡 Consultando programação do Cinesystem Maceió via API...');
@@ -49,7 +50,7 @@ async function main() {
   });
 }
 
-main().catch((err) => {
-  console.error('❌ Erro:', err.message);
+main().catch((err: unknown) => {
+  console.error('❌ Erro:', errorMessage(err));
   process.exit(2);
 });

@@ -4,11 +4,11 @@
 
 ## Configuração base
 
-```js
-// src/api.js
+```ts
+// src/api.ts
 const BASE_URL = 'https://api-content.ingresso.com';
 const CITY_ID = 53;  // Maceió
-const DEFAULT_THEATER_ID = 1162;  // Cinesystem
+const DEFAULT_THEATER_ID = '1162';  // Cinesystem
 ```
 
 ## Headers (browser-like)
@@ -46,7 +46,7 @@ Retorna todas as sessões de um cinema — para todas as datas (passado, hoje e 
 
 **Consumido por:** `fetchUpcoming()` → identifica lançamentos futuros em pré-venda.
 
-## Funções exportadas (`src/api.js`)
+## Funções exportadas (`src/api.ts`)
 
 ### `fetchNormalized(date = null, theaterId = 1162)`
 
@@ -74,7 +74,7 @@ Retorna todas as sessões de um cinema — para todas as datas (passado, hoje e 
 
 ---
 
-## Funções de normalização (`src/normalize.js`)
+## Funções de normalização (`src/normalize.ts`)
 
 ### `extractMovieStatic(raw)` → `MovieStatic`
 Extrai dados estáticos (imutáveis) de um filme cru da API.

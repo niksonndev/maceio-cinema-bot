@@ -1,4 +1,5 @@
 node_modules/
+dist/
 data/
 .env
 .env.local
@@ -6,3 +7,9 @@ data/
 playwright-report/
 test-results/
 tmpclaude-*
+.aws-sam/
+aws/
+awscliv2.zip
+awscliv2.tgz
+aws-sam-cli-linux-*.zip
+sam-installation/

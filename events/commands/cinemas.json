@@ -1,0 +1,16 @@
+{
+  "version": "2.0",
+  "routeKey": "POST /webhook",
+  "rawPath": "/prod/webhook",
+  "headers": {
+    "content-type": "application/json"
+  },
+  "requestContext": {
+    "http": {
+      "method": "POST",
+      "path": "/prod/webhook"
+    }
+  },
+  "body": "{\"update_id\":4,\"message\":{\"message_id\":4,\"from\":{\"id\":123456,\"is_bot\":false,\"first_name\":\"Test\"},\"chat\":{\"id\":123456,\"type\":\"private\"},\"date\":1700000000,\"text\":\"/cinemas\"}}",
+  "isBase64Encoded": false
+}

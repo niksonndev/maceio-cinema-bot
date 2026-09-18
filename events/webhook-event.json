@@ -1,0 +1,16 @@
+{
+  "version": "2.0",
+  "routeKey": "POST /webhook",
+  "rawPath": "/webhook",
+  "headers": {
+    "content-type": "application/json"
+  },
+  "requestContext": {
+    "http": {
+      "method": "POST",
+      "path": "/webhook"
+    }
+  },
+  "body": "{\"update_id\":1,\"message\":{\"message_id\":1,\"from\":{\"id\":123456,\"is_bot\":false,\"first_name\":\"Test\"},\"chat\":{\"id\":123456,\"type\":\"private\"},\"date\":1700000000,\"text\":\"/start\"}}",
+  "isBase64Encoded": false
+}

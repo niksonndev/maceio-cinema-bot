@@ -1,0 +1,129 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Maceio Cine Bot — Telegram webhook (API Gateway + Lambda) + EventBridge cache warming
+
+Globals:
+  Function:
+    Runtime: nodejs22.x
+    Timeout: 30
+    MemorySize: 256
+    Environment:
+      Variables:
+        NODE_ENV: production
+
+Parameters:
+  TelegramBotToken:
+    Type: String
+    NoEcho: true
+    Description: Telegram Bot Token (via @BotFather)
+  OMDbApiKey:
+    Type: String
+    Default: ''
+    NoEcho: true
+    Description: OMDb API key (optional — IMDb/RT ratings)
+  TMDbApiKey:
+    Type: String
+    Default: ''
+    NoEcho: true
+    Description: TMDb API key (optional — fallback ratings)
+
+Resources:
+  # ----------------------------------------------------------------
+  # S3 bucket: persistent storage for the normalized cache + prefs
+  # ----------------------------------------------------------------
+  CacheBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+
+  # ----------------------------------------------------------------
+  # HTTP API (API Gateway) — recebe webhooks do Telegram
+  # ----------------------------------------------------------------
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: prod
+      CorsConfiguration:
+        AllowOrigins: ['*']
+        AllowMethods: ['POST']
+
+  # ----------------------------------------------------------------
+  # BotFunction — handler principal (invocado via webhook)
+  # ----------------------------------------------------------------
+  BotFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildProperties:
+        UseNpmCi: true
+    Properties:
+      CodeUri: .
+      Handler: dist/lambda.handler
+      Environment:
+        Variables:
+          TELEGRAM_BOT_TOKEN: !Ref TelegramBotToken
+          OMDb_API_KEY: !Ref OMDbApiKey
+          TMDB_API_KEY: !Ref TMDbApiKey
+          S3_BUCKET: !Ref CacheBucket
+          CACHE_KEY: cache.json
+          PREFS_KEY: prefs.json
+          # WEBHOOK_URL cannot live here: referencing HttpApi.ApiEndpoint on the
+          # same function that integrates with HttpApi creates a circular dependency.
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref CacheBucket
+      Events:
+        Webhook:
+          Type: HttpApi
+          Properties:
+            Path: /webhook
+            Method: POST
+            ApiId: !Ref HttpApi
+
+  # ----------------------------------------------------------------
+  # FetchFunction — EventBridge cron: atualiza o cache no S3 diariamente
+  # 03:00 UTC = meia-noite em Maceió (UTC-3, sem DST desde 2019)
+  # Also registers the Telegram webhook (safe: no HttpApi event → no cycle).
+  # ----------------------------------------------------------------
+  FetchFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildProperties:
+        UseNpmCi: true
+    Properties:
+      CodeUri: .
+      Handler: dist/lambda.fetchHandler
+      Timeout: 120
+      Environment:
+        Variables:
+          TELEGRAM_BOT_TOKEN: !Ref TelegramBotToken
+          OMDb_API_KEY: !Ref OMDbApiKey
+          TMDB_API_KEY: !Ref TMDbApiKey
+          S3_BUCKET: !Ref CacheBucket
+          CACHE_KEY: cache.json
+          PREFS_KEY: prefs.json
+          # StageName is "prod" → path must include /prod (ApiEndpoint alone omits the stage)
+          WEBHOOK_URL: !Sub '${HttpApi.ApiEndpoint}/prod/webhook'
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref CacheBucket
+      Events:
+        DailyWarm:
+          Type: Schedule
+          Properties:
+            Schedule: cron(0 3 * * ? *)
+            Enabled: true
+
+Outputs:
+  WebhookUrl:
+    Description: URL do webhook do Telegram (…/prod/webhook; FetchFunction chama setWebHook)
+    Value: !Sub '${HttpApi.ApiEndpoint}/prod/webhook'
+    Export:
+      Name: !Sub '${AWS::StackName}-webhook-url'
+
+  FetchFunctionArn:
+    Description: ARN da função de fetch + S3 cache update (EventBridge cron)
+    Value: !GetAtt FetchFunction.Arn
+
+  CacheBucketName:
+    Description: Nome do bucket S3 do cache
+    Value: !Ref CacheBucket
