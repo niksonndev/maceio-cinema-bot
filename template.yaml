@@ -37,7 +37,7 @@ Resources:
     UpdateReplacePolicy: Retain
 
   # ----------------------------------------------------------------
-  # HTTP API (API Gateway) — recebe webhooks do Telegram
+  # HTTP API (API Gateway) — receives Telegram webhooks
   # ----------------------------------------------------------------
   HttpApi:
     Type: AWS::Serverless::HttpApi
@@ -48,7 +48,7 @@ Resources:
         AllowMethods: ['POST']
 
   # ----------------------------------------------------------------
-  # BotFunction — handler principal (invocado via webhook)
+  # BotFunction — main handler (invoked via webhook)
   # ----------------------------------------------------------------
   BotFunction:
     Type: AWS::Serverless::Function
@@ -80,8 +80,8 @@ Resources:
             ApiId: !Ref HttpApi
 
   # ----------------------------------------------------------------
-  # FetchFunction — EventBridge cron: atualiza o cache no S3 diariamente
-  # 03:00 UTC = meia-noite em Maceió (UTC-3, sem DST desde 2019)
+  # FetchFunction — EventBridge cron: updates the S3 cache daily
+  # 03:00 UTC = midnight in Maceió (UTC-3, no DST since 2019)
   # Also registers the Telegram webhook (safe: no HttpApi event → no cycle).
   # ----------------------------------------------------------------
   FetchFunction:
@@ -115,15 +115,15 @@ Resources:
 
 Outputs:
   WebhookUrl:
-    Description: URL do webhook do Telegram (…/prod/webhook; FetchFunction chama setWebHook)
+    Description: Telegram webhook URL (…/prod/webhook; FetchFunction calls setWebHook)
     Value: !Sub '${HttpApi.ApiEndpoint}/prod/webhook'
     Export:
       Name: !Sub '${AWS::StackName}-webhook-url'
 
   FetchFunctionArn:
-    Description: ARN da função de fetch + S3 cache update (EventBridge cron)
+    Description: ARN of the fetch + S3 cache update function (EventBridge cron)
     Value: !GetAtt FetchFunction.Arn
 
   CacheBucketName:
-    Description: Nome do bucket S3 do cache
+    Description: S3 cache bucket name
     Value: !Ref CacheBucket

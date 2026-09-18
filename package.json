@@ -1,7 +1,7 @@
 {
   "name": "maceio-cinema-bot",
   "version": "1.0.0",
-  "description": "Bot de programação de cinemas em Maceió (Ingresso.com) para Telegram",
+  "description": "Maceió cinema schedule bot (Ingresso.com) for Telegram",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
