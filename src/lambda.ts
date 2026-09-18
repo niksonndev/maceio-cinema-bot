@@ -2,13 +2,13 @@
 /**
  * AWS Lambda entry point — Telegram webhook mode.
  *
- * Substitui o polling (`src/bot.ts`) por API Gateway HTTP API + Lambda.
- * O Telegram envia POSTs para a URL do API Gateway → esta Lambda processa
- * o update via `handleUpdate()` (aguardado até as respostas saírem).
+ * Replaces polling (`src/bot.ts`) with API Gateway HTTP API + Lambda.
+ * Telegram POSTs to the API Gateway URL → this Lambda processes the update
+ * via `handleUpdate()` (awaited until replies are sent).
  *
- * Handlers exportados:
- *   - handler()       → invocado pelo API Gateway (webhook)
- *   - fetchHandler()  → invocado pelo EventBridge (cron diário, fetch + S3 cache update)
+ * Exported handlers:
+ *   - handler()       → invoked by API Gateway (webhook)
+ *   - fetchHandler()  → invoked by EventBridge (daily cron, fetch + S3 cache update)
  */
 
 import TelegramBot from 'node-telegram-bot-api';
@@ -30,7 +30,7 @@ function getBot(): TelegramBot {
   if (!bot) {
     const token = process.env.TELEGRAM_BOT_TOKEN;
     if (!token) {
-      throw new Error('TELEGRAM_BOT_TOKEN não configurado');
+      throw new Error('TELEGRAM_BOT_TOKEN is not set');
     }
     bot = new TelegramBot(token, { polling: false });
   }
@@ -47,10 +47,10 @@ async function setCommandsOnce(): Promise<void> {
       { command: 'proximos', description: 'Lançamentos futuros e pré-vendas' },
       { command: 'cinemas', description: 'Trocar de cinema selecionado' },
     ]);
-    console.log('✅ Menu de comandos configurado');
+    console.log('✅ Command menu configured');
   } catch (err) {
     commandsSet = false;
-    console.error('❌ Erro ao configurar menu de comandos:', errorMessage(err));
+    console.error('❌ Failed to configure command menu:', errorMessage(err));
   }
 }
 
@@ -69,7 +69,7 @@ export async function handler(event: ApiGatewayEvent): Promise<LambdaHttpResult>
       body: JSON.stringify({ ok: true }),
     };
   } catch (err) {
-    console.error('❌ Erro no handler:', errorMessage(err));
+    console.error('❌ Handler error:', errorMessage(err));
     return {
       statusCode: 500,
       headers: { 'Content-Type': 'application/json' },
@@ -85,9 +85,9 @@ export async function fetchHandler(): Promise<LambdaHttpResult> {
   if (webhookUrl) {
     try {
       await getBot().setWebHook(webhookUrl);
-      console.log(`✅ Webhook definido: ${webhookUrl}`);
+      console.log(`✅ Webhook set: ${webhookUrl}`);
     } catch (err) {
-      console.warn('⚠️  Erro ao definir webhook:', errorMessage(err));
+      console.warn('⚠️  Failed to set webhook:', errorMessage(err));
     }
   }
 
@@ -108,18 +108,18 @@ export async function fetchHandler(): Promise<LambdaHttpResult> {
       );
       totalMovies += Object.keys(normalized.movies).length;
     } catch (err) {
-      console.error(`❌ Erro ao atualizar sessões do teatro ${theaterId}:`, errorMessage(err));
+      console.error(`❌ Failed to update sessions for theater ${theaterId}:`, errorMessage(err));
     }
 
     try {
       const result = await fetchUpcoming(theaterId);
       await cache.setUpcoming(result.items, result.fetchedAt, theaterId);
     } catch (err) {
-      console.error(`❌ Erro ao atualizar lançamentos do teatro ${theaterId}:`, errorMessage(err));
+      console.error(`❌ Failed to update upcoming for theater ${theaterId}:`, errorMessage(err));
     }
   }
 
-  console.log(`✅ Cache warming concluído — ${totalMovies} filmes processados`);
+  console.log(`✅ Cache warming complete — ${totalMovies} movies processed`);
   return {
     statusCode: 200,
     headers: { 'Content-Type': 'application/json' },

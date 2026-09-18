@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 
 /**
- * Bot Telegram — Entry Point
+ * Telegram bot — local entry point.
  *
- * Inicializa o bot, registra handlers e sobe o health-check HTTP.
- * Uso: npm run bot:listen
+ * Initializes the bot, registers handlers, and starts the HTTP health check.
+ * Usage: npm run bot:listen
  */
 
 import TelegramBot from 'node-telegram-bot-api';
@@ -21,7 +21,7 @@ config();
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 if (!token) {
-  throw new Error('TELEGRAM_BOT_TOKEN não configurado no .env');
+  throw new Error('TELEGRAM_BOT_TOKEN is not set in .env');
 }
 
 const bot = new TelegramBot(token, { polling: false });
@@ -37,9 +37,9 @@ app.get('/', (_req, res) => {
     heapTotal: (mem.heapTotal / 1024 / 1024).toFixed(2),
     rss: (mem.rss / 1024 / 1024).toFixed(2),
   };
-  console.log('📡 Health check recebido', memMB);
+  console.log('📡 Health check received', memMB);
   res.json({
-    status: '✅ Bot está online!',
+    status: '✅ Bot is online!',
     timestamp: new Date().toISOString(),
     memory: memMB,
   });
@@ -59,9 +59,9 @@ async function setCommands(): Promise<void> {
       { command: 'proximos', description: 'Lançamentos futuros e pré-vendas' },
       { command: 'cinemas', description: 'Trocar de cinema selecionado' },
     ]);
-    console.log('✅ Menu de comandos configurado');
+    console.log('✅ Command menu configured');
   } catch (err) {
-    console.error('❌ Erro ao configurar menu de comandos:', errorMessage(err));
+    console.error('❌ Failed to configure command menu:', errorMessage(err));
   }
 }
 
@@ -71,29 +71,29 @@ const MAX_POLLING_RETRIES = 5;
 bot.on('polling_error', (err) => {
   const message = errorMessage(err);
   const code = (err as Error & { code?: string | number }).code;
-  console.error('❌ Erro de polling:', message);
+  console.error('❌ Polling error:', message);
 
   if (code === 409 || message.includes('terminated by other')) {
     pollingRetries++;
     if (pollingRetries > MAX_POLLING_RETRIES) {
       console.error(
-        `💀 Falha após ${MAX_POLLING_RETRIES} tentativas. Outra instância continua ativa — encerrando.`,
+        `💀 Failed after ${MAX_POLLING_RETRIES} attempts. Another instance is still active — shutting down.`,
       );
       shutdown('POLLING_CONFLICT');
       return;
     }
     const delay = Math.min(pollingRetries * 5, 30) * 1000;
     console.log(
-      `⏳ Outra instância detectada (tentativa ${pollingRetries}/${MAX_POLLING_RETRIES}). Reconectando em ${delay / 1000}s...`,
+      `⏳ Another instance detected (attempt ${pollingRetries}/${MAX_POLLING_RETRIES}). Reconnecting in ${delay / 1000}s...`,
     );
     bot.stopPolling().then(() => {
       setTimeout(async () => {
         try {
           await deleteWebhookDropPending();
           bot.startPolling({ restart: true });
-          console.log('🔄 Polling reiniciado.');
+          console.log('🔄 Polling restarted.');
         } catch (retryErr) {
-          console.error('❌ Erro ao reiniciar polling:', errorMessage(retryErr));
+          console.error('❌ Failed to restart polling:', errorMessage(retryErr));
         }
       }, delay);
     });
@@ -102,7 +102,7 @@ bot.on('polling_error', (err) => {
 
 bot.on('polling', () => {
   if (pollingRetries > 0) {
-    console.log('✅ Polling restabelecido com sucesso.');
+    console.log('✅ Polling restored successfully.');
     pollingRetries = 0;
   }
 });
@@ -115,31 +115,31 @@ void (async () => {
 
   try {
     await deleteWebhookDropPending();
-    console.log('✅ Webhook removido, polling liberado.');
+    console.log('✅ Webhook removed, polling enabled.');
   } catch (err) {
-    console.warn('⚠️ Erro ao remover webhook:', errorMessage(err));
+    console.warn('⚠️ Failed to remove webhook:', errorMessage(err));
   }
 
   bot.startPolling({ restart: true });
 
   server = app.listen(PORT, '0.0.0.0', () => {
-    console.log(`✅ Bot subiu na porta ${PORT} (host 0.0.0.0)`);
+    console.log(`✅ Bot listening on port ${PORT} (host 0.0.0.0)`);
     console.log(`📡 Health check: http://0.0.0.0:${PORT}/`);
   });
 
-  console.log('🚀 Bot iniciado em modo polling (local/dev)...');
-  console.log('Aguardando mensagens. Envie /start para começar.');
+  console.log('🚀 Bot started in polling mode (local/dev)...');
+  console.log('Waiting for messages. Send /start to begin.');
 })();
 
 let shuttingDown = false;
 function shutdown(signal: string): void {
   if (shuttingDown) return;
   shuttingDown = true;
-  console.log(`\n👋 Desligando bot (sinal recebido: ${signal})...`);
+  console.log(`\n👋 Shutting down bot (signal: ${signal})...`);
   void bot.stopPolling();
   if (server) {
     server.close(() => {
-      console.log('✅ Servidor encerrado');
+      console.log('✅ Server closed');
       process.exit(0);
     });
   } else {

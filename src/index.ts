@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 
 /**
- * CLI para consultar a programação do Cinesystem Maceió via API oficial.
+ * CLI to query Cinesystem Maceió schedules via the official API.
  *
- * Uso:
- *   npx tsx src/index.ts [data]
+ * Usage:
+ *   npx tsx src/index.ts [date]
  *
- * Exemplos:
- *   npm start                 → hoje (segundo API / fuso de Maceió)
- *   npm start -- 2026-02-23   → data específica (YYYY-MM-DD)
+ * Examples:
+ *   npm start                 → today (per API / Maceió timezone)
+ *   npm start -- 2026-02-23   → specific date (YYYY-MM-DD)
  */
 
 import { fetchNormalized } from './api.js';
@@ -18,20 +18,20 @@ import { errorMessage } from './types.js';
 async function main(): Promise<void> {
   const date = process.argv[2] || null;
 
-  console.log('📡 Consultando programação do Cinesystem Maceió via API...');
+  console.log('📡 Fetching Cinesystem Maceió schedule via API...');
   if (date) {
-    console.log(`📅 Data solicitada: ${date} (YYYY-MM-DD)`);
+    console.log(`📅 Requested date: ${date} (YYYY-MM-DD)`);
   } else {
-    console.log('📅 Nenhuma data informada, usando data atual da API.');
+    console.log('📅 No date provided, using current API date.');
   }
 
   const normalized = await fetchNormalized(date);
   const movies = denormalize(normalized.movies, normalized.sessions);
 
-  console.log(`📽️  Filmes: ${movies.length}`);
+  console.log(`📽️  Movies: ${movies.length}`);
 
   if (movies.length === 0) {
-    console.log('⚠️  Nenhuma sessão encontrada para esta data');
+    console.log('⚠️  No sessions found for this date');
     return;
   }
 
@@ -45,12 +45,12 @@ async function main(): Promise<void> {
         return str;
       })
       .join(', ');
-    console.log(`  🎬 ${m.name}: ${(m.sessions || []).length} sessão(ões)`);
+    console.log(`  🎬 ${m.name}: ${(m.sessions || []).length} session(s)`);
     console.log(`     ${sessionsList}`);
   });
 }
 
 main().catch((err: unknown) => {
-  console.error('❌ Erro:', errorMessage(err));
+  console.error('❌ Error:', errorMessage(err));
   process.exit(2);
 });

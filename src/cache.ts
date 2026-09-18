@@ -1,5 +1,5 @@
 /**
- * Cache normalizado para dados do Ingresso.com
+ * Normalized cache for Ingresso.com data.
  */
 
 import fs from 'fs';
@@ -116,7 +116,7 @@ export class NormalizedCache {
     } catch (err) {
       this.data = emptyCache();
       if (!isS3NotFound(err)) {
-        console.warn('⚠️  Cache corrompido, reinicializando:', errorMessage(err));
+        console.warn('⚠️  Cache corrupted, reinitializing:', errorMessage(err));
       }
     }
   }
@@ -139,7 +139,7 @@ export class NormalizedCache {
         fs.writeFileSync(CACHE_FILE, JSON.stringify(this.data, null, 2), 'utf-8');
       }
     } catch (err) {
-      console.error('❌ Erro ao salvar cache:', errorMessage(err));
+      console.error('❌ Failed to save cache:', errorMessage(err));
     }
   }
 
@@ -153,7 +153,7 @@ export class NormalizedCache {
     }
     if (added > 0) {
       this.data.moviesUpdatedAt = new Date().toISOString();
-      console.log(`💾 ${added} filme(s) novo(s) adicionado(s) ao cache estático`);
+      console.log(`💾 ${added} new movie(s) added to static cache`);
     }
     return added;
   }
@@ -168,7 +168,7 @@ export class NormalizedCache {
     this.data.sessions[theaterId][date] = { fetchedAt, items: sessions };
     this.purgeOldSessions();
     await this.save();
-    console.log(`💾 ${sessions.length} sessão(ões) salva(s) para ${date} (teatro ${theaterId})`);
+    console.log(`💾 ${sessions.length} session(s) saved for ${date} (theater ${theaterId})`);
   }
 
   getSessions(date: string, theaterId = '1162'): SessionDayCache | null {
@@ -182,12 +182,12 @@ export class NormalizedCache {
     const today = this.getMaceioDate(0);
 
     if (cachedDay !== today) {
-      console.log(`📅 Cache de sessões para ${date} expirado (${cachedDay} → ${today})`);
+      console.log(`📅 Session cache for ${date} expired (${cachedDay} → ${today})`);
       delete theaterSessions[date];
       return null;
     }
 
-    console.log(`✅ Cache hit: sessões de ${date} (teatro ${theaterId})`);
+    console.log(`✅ Cache hit: sessions for ${date} (theater ${theaterId})`);
     return cached;
   }
 
@@ -205,7 +205,7 @@ export class NormalizedCache {
     }
     this.data.upcoming[theaterId] = { fetchedAt, items };
     await this.save();
-    console.log(`💾 ${items.length} lançamento(s) salvo(s) no cache (teatro ${theaterId})`);
+    console.log(`💾 ${items.length} upcoming release(s) saved to cache (theater ${theaterId})`);
   }
 
   getUpcoming(theaterId = '1162'): UpcomingCache | null {
@@ -217,13 +217,13 @@ export class NormalizedCache {
 
     if (cachedDay !== today) {
       console.log(
-        `📅 Cache de lançamentos expirado para teatro ${theaterId} (${cachedDay} → ${today})`,
+        `📅 Upcoming cache expired for theater ${theaterId} (${cachedDay} → ${today})`,
       );
       delete this.data.upcoming[theaterId];
       return null;
     }
 
-    console.log(`✅ Cache hit: próximos lançamentos (teatro ${theaterId})`);
+    console.log(`✅ Cache hit: upcoming releases (theater ${theaterId})`);
     return cached;
   }
 

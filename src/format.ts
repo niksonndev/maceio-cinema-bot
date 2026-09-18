@@ -1,5 +1,5 @@
 /**
- * Formatação de mensagens Telegram para filmes e lançamentos.
+ * Telegram message formatting for movies and upcoming releases.
  */
 
 import { getMovieRatings, formatRatingsLine } from './ratings.js';

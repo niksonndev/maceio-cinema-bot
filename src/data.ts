@@ -1,5 +1,5 @@
 /**
- * Camada de acesso a dados com cache para filmes e lançamentos.
+ * Data-access layer with cache for movies and upcoming releases.
  */
 
 import { fetchNormalized, fetchUpcoming } from './api.js';

@@ -34,7 +34,7 @@ export async function fetchNormalized(
   const targetDate = resolveTargetDate(date);
   const theater = String(theaterId);
 
-  console.log(`🎬 Buscando sessões para ${targetDate} (teatro ${theater})...`);
+  console.log(`🎬 Fetching sessions for ${targetDate} (theater ${theater})...`);
   const { data: response } = await axios.get<IngressoDateEntry | IngressoDateEntry[]>(
     `${BASE_URL}/v0/sessions/city/${CITY_ID}/theater/${theater}/partnership/home/groupBy/sessionType`,
     { params: { date: targetDate }, headers: HEADERS },
@@ -44,7 +44,7 @@ export async function fetchNormalized(
   normalized.date = targetDate;
 
   console.log(
-    `✅ ${Object.keys(normalized.movies).length} filmes, ${normalized.sessions.length} sessões`,
+    `✅ ${Object.keys(normalized.movies).length} movies, ${normalized.sessions.length} sessions`,
   );
 
   return normalized;
@@ -54,7 +54,7 @@ export async function fetchUpcoming(
   theaterId: string | number = DEFAULT_THEATER_ID,
 ): Promise<{ items: UpcomingItem[]; fetchedAt: string }> {
   const theater = String(theaterId);
-  console.log(`🆕 Buscando próximos lançamentos - pré-venda (teatro ${theater})...`);
+  console.log(`🆕 Fetching upcoming releases — pre-sale (theater ${theater})...`);
 
   const { data: response } = await axios.get<IngressoDateEntry | IngressoDateEntry[]>(
     `${BASE_URL}/v0/sessions/city/${CITY_ID}/theater/${theater}`,
@@ -76,7 +76,7 @@ export async function fetchUpcoming(
 
   let items = normalizeUpcomingFromSessions(futureDates, todayMovieIds);
   items = items.filter((item) => item.inPreSale === true);
-  console.log(`✅ ${items.length} lançamento(s) em pré-venda`);
+  console.log(`✅ ${items.length} pre-sale release(s)`);
 
   return { items, fetchedAt: new Date().toISOString() };
 }

@@ -1,9 +1,8 @@
 /**
- * Normalização de dados da API do Ingresso.com
+ * Normalize Ingresso.com API data.
  *
- * Separa dados estáticos de filmes (que mudam raramente) dos dados
- * dinâmicos de sessões (que mudam por dia/horário), eliminando a
- * redundância massiva do endpoint de sessões.
+ * Separates static movie data (rarely changes) from dynamic session data
+ * (changes by day/time), removing the massive redundancy of the sessions endpoint.
  */
 
 import type {

@@ -1,7 +1,7 @@
 /**
- * Busca notas de filmes:
- * - IMDb e Rotten Tomatoes via OMDb
- * - Fallback via TMDb (quando OMDb não retorna nada)
+ * Fetch movie ratings:
+ * - IMDb and Rotten Tomatoes via OMDb
+ * - Fallback via TMDb (when OMDb returns nothing)
  */
 
 import axios from 'axios';
@@ -124,14 +124,14 @@ export async function getMovieRatings(
   try {
     result = await fetchFromOmdb(title, year);
   } catch (err) {
-    console.warn(`⚠️ OMDb: erro ao buscar "${title}":`, errorMessage(err));
+    console.warn(`⚠️ OMDb: error fetching "${title}":`, errorMessage(err));
   }
 
   if (!result) {
     try {
       result = await fetchFromTmdb(title, year);
     } catch (err) {
-      console.warn(`⚠️ TMDb: erro ao buscar "${title}":`, errorMessage(err));
+      console.warn(`⚠️ TMDb: error fetching "${title}":`, errorMessage(err));
     }
   }
 

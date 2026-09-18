@@ -1,5 +1,5 @@
 /**
- * Builders de teclados inline para o Telegram.
+ * Inline keyboard builders for Telegram.
  */
 
 import { CINEMAS } from './cinemas.js';

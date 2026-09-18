@@ -1,9 +1,9 @@
 /**
- * Handlers de comandos e callbacks do Telegram.
+ * Telegram command and callback handlers.
  *
- * `handleUpdate(bot, cache, update)` é o dispatcher compartilhado por
- * polling (bot.ts) e webhook (lambda.ts). Lambda aguarda o retorno antes
- * de responder 200 ao API Gateway.
+ * `handleUpdate(bot, cache, update)` is the shared dispatcher for polling
+ * (bot.ts) and webhook (lambda.ts). Lambda awaits the return before
+ * responding 200 to API Gateway.
  */
 
 import { fetchNormalized } from './api.js';
@@ -195,9 +195,9 @@ export async function handleStart(bot: BotLike, msg: TelegramMessage): Promise<v
       'Olá! Eu sou o seu guia de cinema em Maceió. 🍿\nEscolha abaixo qual cinema você deseja consultar:',
       { reply_markup: getCinemaKeyboard() },
     );
-    console.log(`✅ /start enviado para ${msg.from?.username || chatId}`);
+    console.log(`✅ /start sent to ${msg.from?.username || chatId}`);
   } catch (err) {
-    console.error(`❌ Erro em /start para ${chatId}:`, errorMessage(err));
+    console.error(`❌ /start error for ${chatId}:`, errorMessage(err));
   }
 }
 
@@ -217,10 +217,10 @@ export async function handleHoje(
     await withLoading(bot, chatId, '⏳ Buscando filmes de hoje...', () =>
       sendCarouselPage(bot, cache, chatId, 'hoje', 0, cinema),
     );
-    console.log(`✅ /hoje enviado para ${msg.from?.username || chatId} (${cinema.name})`);
+    console.log(`✅ /hoje sent to ${msg.from?.username || chatId} (${cinema.name})`);
   } catch (err) {
     await bot.sendMessage(chatId, `❌ Erro ao buscar filmes: ${errorMessage(err)}`);
-    console.error(`❌ Erro em /hoje para ${chatId}:`, errorMessage(err));
+    console.error(`❌ /hoje error for ${chatId}:`, errorMessage(err));
   }
 }
 
@@ -240,10 +240,10 @@ export async function handleProximos(
     await withLoading(bot, chatId, '⏳ Buscando próximos lançamentos...', () =>
       sendCarouselPage(bot, cache, chatId, 'proximos', 0, cinema),
     );
-    console.log(`✅ /proximos enviado para ${msg.from?.username || chatId} (${cinema.name})`);
+    console.log(`✅ /proximos sent to ${msg.from?.username || chatId} (${cinema.name})`);
   } catch (err) {
     await bot.sendMessage(chatId, `❌ Erro ao buscar lançamentos: ${errorMessage(err)}`);
-    console.error(`❌ Erro em /proximos para ${chatId}:`, errorMessage(err));
+    console.error(`❌ /proximos error for ${chatId}:`, errorMessage(err));
   }
 }
 
@@ -284,10 +284,10 @@ export async function handleAtualizar(
       );
       await sendCarouselPage(bot, cache, chatId, 'hoje', 0, cinema);
     });
-    console.log(`✅ /atualizar enviado para ${msg.from?.username || chatId} (${cinema.name})`);
+    console.log(`✅ /atualizar sent to ${msg.from?.username || chatId} (${cinema.name})`);
   } catch (err) {
     await bot.sendMessage(chatId, `❌ Erro ao atualizar: ${errorMessage(err)}`);
-    console.error(`❌ Erro em /atualizar para ${chatId}:`, errorMessage(err));
+    console.error(`❌ /atualizar error for ${chatId}:`, errorMessage(err));
   }
 }
 
@@ -303,7 +303,7 @@ export async function handleCallbackQuery(
   try {
     await bot.answerCallbackQuery(query.id);
   } catch (err) {
-    console.error('❌ Erro ao responder callback:', errorMessage(err));
+    console.error('❌ Failed to answer callback:', errorMessage(err));
   }
 
   try {
@@ -320,7 +320,7 @@ export async function handleCallbackQuery(
         `✅ Cinema selecionado: *${cinema.label}*\n\nEscolha uma opção:`,
         { parse_mode: 'Markdown', reply_markup: getMainKeyboard() },
       );
-      console.log(`🎬 ${query.from?.username || chatId} selecionou ${cinema.name}`);
+      console.log(`🎬 ${query.from?.username || chatId} selected ${cinema.name}`);
       return;
     }
 
@@ -352,7 +352,7 @@ export async function handleCallbackQuery(
       try {
         await editCarouselPage(bot, cache, chatId, messageId, type, index, cinema, hasPhoto);
       } catch (err) {
-        console.error(`❌ Erro ao editar carrossel ${type}:`, errorMessage(err));
+        console.error(`❌ Failed to edit carousel ${type}:`, errorMessage(err));
       }
       return;
     }
@@ -425,7 +425,7 @@ export async function handleCallbackQuery(
         await sendWithBackButton(bot, chatId, '❓ Opção não reconhecida.', cinema.url);
     }
   } catch (err) {
-    console.error(`❌ Erro ao processar ${callbackData}:`, errorMessage(err));
+    console.error(`❌ Failed to process ${callbackData}:`, errorMessage(err));
     await bot.sendMessage(chatId, `❌ Erro ao processar: ${errorMessage(err)}`).catch(() => {});
   }
 }
@@ -473,7 +473,7 @@ export function registerHandlers(bot: BotLike, cache: CacheLike): void {
     handleCallbackQuery(bot, cache, query)) as (...args: never[]) => unknown);
   bot.on?.('message', ((msg: TelegramMessage) => {
     if (msg.text && !COMMAND_RE.test(msg.text)) {
-      console.log(`📨 Mensagem recebida de ${msg.from?.username || msg.chat.id}: "${msg.text}"`);
+      console.log(`📨 Message from ${msg.from?.username || msg.chat.id}: "${msg.text}"`);
       return;
     }
     return handleUpdate(bot, cache, { message: msg });

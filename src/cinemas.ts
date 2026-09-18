@@ -1,5 +1,5 @@
 /**
- * Definições de cinemas em Maceió e preferência por usuário.
+ * Cinema definitions for Maceió and per-user preferences.
  */
 
 import fs from 'fs';
@@ -63,7 +63,7 @@ export async function loadPrefs(): Promise<void> {
   } catch (err) {
     prefs = {};
     if (!isS3NotFound(err)) {
-      console.warn('⚠️  Prefs corrompidas, reinicializando:', errorMessage(err));
+      console.warn('⚠️  Prefs corrupted, reinitializing:', errorMessage(err));
     }
   }
 }
@@ -88,7 +88,7 @@ async function savePrefs(): Promise<void> {
       fs.writeFileSync(PREFS_FILE, body, 'utf-8');
     }
   } catch (err) {
-    console.error('❌ Erro ao salvar prefs:', errorMessage(err));
+    console.error('❌ Failed to save prefs:', errorMessage(err));
     throw err;
   }
 }
