@@ -15,8 +15,8 @@
 | HTTP | Amazon API Gateway — HTTP API (`POST /webhook`) |
 | Agendamento | Amazon EventBridge (`cron(0 3 * * ? *)` — meia-noite Maceió) |
 | Cache | Amazon S3 (`cache.json` + `prefs.json`) |
-| Handlers | `src/lambda.handler`, `src/lambda.fetchHandler` |
-| Scripts npm | `sam:build`, `sam:deploy`, `sam:warm`, `sam:local` |
+| Handlers | `dist/lambda.handler`, `dist/lambda.fetchHandler` |
+| Scripts npm | `sam:build` (`tsc` + `sam build`), `sam:deploy`, `sam:warm`, `sam:local` |
 
 ### Pré-requisitos
 
@@ -29,7 +29,7 @@
 
 ```bash
 sam validate
-sam build          # ou: npm run sam:build
+npm run sam:build   # tsc → dist/ então sam build
 ```
 
 ### 2. Deploy (primeira vez — modo guiado)
@@ -92,7 +92,7 @@ Ordem importa:
 ### 5. Deploys subsequentes
 
 ```bash
-sam build && sam deploy
+npm run sam:build && sam deploy
 ```
 
 ### 6. Desenvolvimento / teste local do SAM
@@ -119,6 +119,53 @@ region = "sa-east-1"
 
 Não é preciso passar `WebhookUrl` em `parameter_overrides` — a URL vem do
 `HttpApi` no `template.yaml`.
+
+### CI/CD (GitHub Actions)
+
+O workflow [`.github/workflows/ci-cd.yml`](../.github/workflows/ci-cd.yml) roda em:
+
+- **Pull request para `main`:** lint, typecheck e testes (Docker + LocalStack). Sem deploy.
+- **Push para `main`** (inclui merge de PR): os mesmos checks, depois `sam deploy` e `sam:warm`.
+
+Autenticação AWS é via **OIDC** (`aws-actions/configure-aws-credentials`), sem access keys de longa duração.
+
+#### Secrets e variáveis no repositório
+
+| Nome | Onde | Uso |
+| --- | --- | --- |
+| `AWS_ROLE_ARN` | Variable ou secret | ARN da role IAM assumida pelo workflow (`sa-east-1`) |
+| `TELEGRAM_BOT_TOKEN` | Secret | Parâmetro SAM `TelegramBotToken` |
+| `OMDb_API_KEY` | Secret (opcional) | Parâmetro SAM `OMDbApiKey` |
+| `TMDB_API_KEY` | Secret (opcional) | Parâmetro SAM `TMDbApiKey` |
+
+A role deve confiar no provedor OIDC `token.actions.githubusercontent.com`, restrita a este repositório e a `ref:refs/heads/main`, com permissões equivalentes ao deploy guiado (CloudFormation, SAM S3, Lambda, API Gateway, EventBridge, IAM).
+
+Esboço de trust policy da role:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": { "Federated": "arn:aws:iam::<ACCOUNT_ID>:oidc-provider/token.actions.githubusercontent.com" },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
+        },
+        "StringLike": {
+          "token.actions.githubusercontent.com:sub": "repo:<OWNER>/<REPO>:ref:refs/heads/main"
+        }
+      }
+    }
+  ]
+}
+```
+
+Substitua `<ACCOUNT_ID>`, `<OWNER>` e `<REPO>`. Também é preciso criar o identity provider OIDC da AWS para GitHub se ainda não existir.
+
+Deploys manuais (`npm run sam:deploy`) continuam válidos; o `confirm_changeset` do `samconfig.toml` aplica só ao CLI local. O workflow passa `--no-confirm-changeset --no-fail-on-empty-changeset`.
 
 ### Recursos do `template.yaml`
 

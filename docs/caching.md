@@ -11,7 +11,7 @@
 | Produção (SAM / Lambda) | S3 | Objetos `CACHE_KEY` (`cache.json`) e `PREFS_KEY` (`prefs.json`) no bucket `S3_BUCKET` |
 | Testes (`npm test`) | LocalStack S3 | Mesmo código de produção, `AWS_ENDPOINT_URL` aponta para o container |
 
-A escolha é automática em `src/cache.js` / `src/cinemas.js`: se `process.env.S3_BUCKET` estiver
+A escolha é automática em `src/cache.ts` / `src/cinemas.ts`: se `process.env.S3_BUCKET` estiver
 definido, usa o AWS SDK (`GetObject` / `PutObject`); senão, usa o arquivo local.
 `AWS_ENDPOINT_URL` (com `forcePathStyle`) habilita LocalStack sem fork do código.
 
@@ -45,7 +45,7 @@ prefs.json
 
 ### Sessões e lançamentos — expiração diária
 
-Implementada em `src/cache.js`:
+Implementada em `src/cache.ts`:
 
 - `getSessions(date, theaterId)` → compara `fetchedAt` com o dia atual em `America/Maceio`. Se o dia for diferente, **deleta a entrada** e retorna `null` (cache miss → força nova requisição).
 - `getUpcoming(theaterId)` → mesma lógica.
@@ -69,7 +69,7 @@ return cached;  // válido
 
 ## Lógica de cache hit/miss
 
-Implementada em `src/data.js`:
+Implementada em `src/data.ts`:
 
 ```js
 // getMoviesForDate()
@@ -100,7 +100,7 @@ com sua própria expiração diária.
 ## Cache de ratings (in-memory)
 
 ```js
-// src/ratings.js
+// src/ratings.ts
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 const memoryCache = new Map();             // key: "title|year" → { at, data }
 ```

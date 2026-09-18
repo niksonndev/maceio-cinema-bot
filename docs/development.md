@@ -6,6 +6,7 @@
 
 | Ferramenta  | Versão / notas |
 | ----------- | -------------- |
+| TypeScript  | ^5 (compila para `dist/` no SAM) |
 | Node.js     | >= 20 (22 no Docker de testes / Lambda) |
 | npm         | >= 10          |
 | Docker      | **Obrigatório para `npm test`** e para `sam local invoke` |
@@ -48,14 +49,16 @@ TMDB_API_KEY=sua_chave_tmdb              # opcional (fallback TMDb)
 
 | Script             | Comando               | Descrição                                                     |
 | ------------------ | --------------------- | ------------------------------------------------------------- |
-| `start`            | `node src/index.js`   | CLI — valida a pipeline (fetch + console). Sem tokens.        |
-| `bot:listen`       | `node src/bot.js`     | Bot Telegram **local** (polling) + Express health check.      |
+| `start`            | `tsx src/index.ts`    | CLI — valida a pipeline (fetch + console). Sem tokens.        |
+| `bot:listen`       | `tsx src/bot.ts`      | Bot Telegram **local** (polling) + Express health check.      |
+| `build`            | `tsc -p tsconfig.json`| Compila `src/` → `dist/` (necessário para SAM).               |
+| `typecheck`        | `tsc --noEmit`        | Checagem TypeScript de `src/` e `test/`.                      |
 | `test`             | Docker Compose        | Vitest (Node 22 + LocalStack S3). Exige Docker.               |
 | `lint`             | `eslint src/ test/`   | Lint (ESLint + Prettier).                                     |
 | `lint:fix`         | `eslint src/ test/ --fix` | Lint + correção automática.                               |
 | `format`           | `prettier --write src/ test/` | Formatação automática.                              |
 | `format:check`     | `prettier --check src/ test/` | Verifica formatação.                                |
-| `sam:build`        | `sam build`           | Empacota a aplicação SAM.                                     |
+| `sam:build`        | `npm run build && sam build` | Compila TS e empacota a aplicação SAM.               |
 | `sam:deploy`       | `sam deploy`          | Publica o stack (exige AWS configurado).                      |
 | `sam:warm`         | `scripts/sam-warm.sh` | Invoca FetchFunction (webhook + cache).                       |
 | `sam:local`        | `scripts/sam-local.sh`| `sam local invoke` por evento (Docker).                       |
@@ -66,7 +69,7 @@ TMDB_API_KEY=sua_chave_tmdb              # opcional (fallback TMDb)
 npm start
 ```
 
-Isso executa `src/index.js`, que:
+Isso executa `src/index.ts`, que:
 1. Faz fetch da programação de hoje (Cinesystem, teatro `1162`).
 2. Normaliza os dados.
 3. Imprime no console a lista de filmes e sessões.
@@ -122,7 +125,7 @@ Requer SAM CLI + Docker:
 
 ```bash
 sam validate
-sam build
+npm run sam:build
 npm run sam:local
 sam local start-api
 ```
@@ -131,6 +134,7 @@ sam local start-api
 
 ```bash
 npm run lint
+npm run typecheck
 npm run lint:fix
 npm run format
 npm run format:check
@@ -141,19 +145,21 @@ npm run format:check
 ```
 maceio-cinema-bot/
 ├── src/
-│   ├── api.js
-│   ├── normalize.js
-│   ├── cache.js            # arquivo local ou S3
-│   ├── data.js
-│   ├── cinemas.js          # lista de cinemas + prefs persistidas
-│   ├── format.js
-│   ├── ratings.js
-│   ├── keyboards.js
-│   ├── handlers.js         # handleUpdate (polling e webhook)
-│   ├── bot.js              # polling local
-│   ├── lambda.js           # webhook + fetchHandler (produção)
-│   └── index.js
+│   ├── api.ts
+│   ├── normalize.ts
+│   ├── cache.ts            # arquivo local ou S3
+│   ├── data.ts
+│   ├── cinemas.ts          # lista de cinemas + prefs persistidas
+│   ├── format.ts
+│   ├── ratings.ts
+│   ├── keyboards.ts
+│   ├── handlers.ts         # handleUpdate (polling e webhook)
+│   ├── bot.ts              # polling local
+│   ├── lambda.ts           # webhook + fetchHandler (produção)
+│   ├── types.ts
+│   └── index.ts
 ├── test/                   # Vitest (rodado via Docker Compose)
+├── dist/                   # emit tsc (não commitado)
 ├── events/
 │   ├── webhook-event.json
 │   ├── env.json            # env dummy para sam local
@@ -162,11 +168,13 @@ maceio-cinema-bot/
 ├── scripts/
 │   ├── sam-warm.sh
 │   └── sam-local.sh
+├── .github/workflows/ci-cd.yml
 ├── docker-compose.test.yml
 ├── docs/
 ├── data/                   # runtime local (não commitado)
 ├── template.yaml           # AWS SAM
 ├── samconfig.toml
+├── tsconfig.json
 ├── .env.example
 ├── eslint.config.js
 ├── package.json
@@ -190,7 +198,7 @@ npm run format
 npm run bot:listen
 
 # 5. Valida o template SAM
-sam validate && sam build
+sam validate && npm run sam:build
 ```
 
 ## 11. Observações

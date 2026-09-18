@@ -4,7 +4,7 @@
 
 ## 1. Cache persistente — `data/cache.json`
 
-Gerenciado pela classe `NormalizedCache` (`src/cache.js`). Persistido em disco
+Gerenciado pela classe `NormalizedCache` (`src/cache.ts`). Persistido em disco
 (local) ou S3 (produção), junto com `prefs.json`.
 
 ```jsonc
@@ -82,11 +82,11 @@ Gerenciado pela classe `NormalizedCache` (`src/cache.js`). Persistido em disco
 
 #### `MovieStatic` (dados estáticos — raramente mudam)
 
-Extraído por `extractMovieStatic()` em `src/normalize.js`. São idênticos independentemente de data/cinema.
+Extraído por `extractMovieStatic()` em `src/normalize.ts`. São idênticos independentemente de data/cinema.
 
 #### `Session` (dados dinâmicos — mudam por dia/horário)
 
-Extraído por `extractSessions()` em `src/normalize.js`. Cada sessão tem apenas os dados relevantes à data/teatro consultado.
+Extraído por `extractSessions()` em `src/normalize.ts`. Cada sessão tem apenas os dados relevantes à data/teatro consultado.
 
 #### `UpcomingItem` (lançamentos futuros)
 
@@ -96,7 +96,7 @@ Extraído por `normalizeUpcomingFromSessions()`. Identifica filmes que **ainda n
 
 ## 2. Estrutura de exibição (denormalizada)
 
-Produzida pela função `denormalize(movies, sessions)` em `src/normalize.js`. É o formato consumido pela camada de formatação (`format.js`).
+Produzida pela função `denormalize(movies, sessions)` em `src/normalize.ts`. É o formato consumido pela camada de formatação (`format.ts`).
 
 ```js
 {
@@ -131,7 +131,7 @@ Produzida pela função `denormalize(movies, sessions)` em `src/normalize.js`. �
 
 ## 3. Ratings (in-memory)
 
-Estrutura temporária mantida em `src/ratings.js`:
+Estrutura temporária mantida em `src/ratings.ts`:
 
 ```js
 // memoryCache: Map<string, { at: number, data: RatingsResult | null }>
@@ -151,7 +151,7 @@ RatingsResult = {
 
 ## 4. Preferências de usuários (persistidas)
 
-Gerenciadas em `src/cinemas.js`. Mesmo dual-backend do cache:
+Gerenciadas em `src/cinemas.ts`. Mesmo dual-backend do cache:
 
 - Local: `data/prefs.json`
 - Produção / testes S3: objeto `PREFS_KEY` (padrão `prefs.json`)

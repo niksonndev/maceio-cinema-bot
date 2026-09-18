@@ -14,9 +14,9 @@ Polling local (`npm run bot:listen`) é só para desenvolvimento.
 | Item | Detalhe |
 | --- | --- |
 | ☁️ **IaC** | [`template.yaml`](template.yaml) (AWS SAM) |
-| 🔌 **Ingresso** | Telegram webhook → API Gateway `POST /webhook` → `src/lambda.handler` |
+| 🔌 **Ingresso** | Telegram webhook → API Gateway `POST /webhook` → `dist/lambda.handler` |
 | 💾 **Cache** | S3 (`cache.json` + `prefs.json`) em produção; `data/*.json` em local |
-| ⏰ **Warm** | EventBridge cron diário → `src/lambda.fetchHandler` |
+| ⏰ **Warm** | EventBridge cron diário → `dist/lambda.fetchHandler` |
 | 📋 **Guia** | [`docs/deployment.md`](docs/deployment.md) |
 
 ---
@@ -93,7 +93,8 @@ Bot:     🎬 PROGRAMAÇÃO
 
 | Tecnologia | Uso |
 | --- | --- |
-| **Node.js** | Runtime do bot e da CLI |
+| **Node.js 22** | Runtime (local, testes, Lambda) |
+| **TypeScript** | Código-fonte em `src/`; emit para `dist/` no SAM |
 | **Telegram Bot API** | Bot via [node-telegram-bot-api](https://github.com/yagop/node-telegram-bot-api) (modo polling) |
 | **Axios** | Requisições HTTP para a API do Ingresso.com |
 | **Express** | Servidor HTTP para health check (porta dinâmica) |
@@ -150,24 +151,25 @@ npm test
 
 ## 📂 Arquitetura
 
-O projeto é uma aplicação Node.js com módulos em `src/`. Veja a
+O projeto é uma aplicação TypeScript (Node.js) com módulos em `src/`. Veja a
 [documentação completa de arquitetura](docs/architecture.md) para detalhes sobre
 fluxos de dados e responsabilidades.
 
 | Módulo          | Responsabilidade curta                                           |
 | --------------- | ---------------------------------------------------------------- |
-| `api.js`        | Cliente HTTP (Axios) para a API pública do Ingresso.com          |
-| `normalize.js`  | Separa dados estáticos de filmes dos dinâmicos de sessões        |
-| `cache.js`      | Cache JSON (arquivo local ou S3) com expiração diária por cinema |
-| `data.js`       | Orquestra cache ↔ API ↔ normalize (cache hit antes da API)        |
-| `cinemas.js`    | Definição dos 3 cinemas + preferências por usuário                |
-| `format.js`     | Formatação de mensagens Telegram (Markdown)                       |
-| `ratings.js`    | Notas IMDb/RT (OMDb) + fallback TMDb, cache 24h                   |
-| `keyboards.js`  | Builders de teclados inline do Telegram                           |
-| `handlers.js`   | Handlers de comandos e callbacks                                 |
-| `bot.js`        | Entry local (polling + Express + graceful shutdown)               |
-| `lambda.js`     | Entry produção (webhook Lambda + fetch/cache warm)                |
-| `index.js`      | CLI para verificação rápida via terminal                          |
+| `api.ts`        | Cliente HTTP (Axios) para a API pública do Ingresso.com          |
+| `normalize.ts`  | Separa dados estáticos de filmes dos dinâmicos de sessões        |
+| `cache.ts`      | Cache JSON (arquivo local ou S3) com expiração diária por cinema |
+| `data.ts`       | Orquestra cache ↔ API ↔ normalize (cache hit antes da API)        |
+| `cinemas.ts`    | Definição dos 3 cinemas + preferências por usuário                |
+| `format.ts`     | Formatação de mensagens Telegram (Markdown)                       |
+| `ratings.ts`    | Notas IMDb/RT (OMDb) + fallback TMDb, cache 24h                   |
+| `keyboards.ts`  | Builders de teclados inline do Telegram                           |
+| `handlers.ts`   | Handlers de comandos e callbacks                                 |
+| `bot.ts`        | Entry local (polling + Express + graceful shutdown)               |
+| `lambda.ts`     | Entry produção (webhook Lambda + fetch/cache warm)                |
+| `index.ts`      | CLI para verificação rápida via terminal                          |
+| `types.ts`      | Tipos de domínio (cache, sessões, Telegram, BotLike)              |
 
 Veja também os documentos técnicos na pasta [`docs/`](./docs):
 
