@@ -4,9 +4,9 @@
  *
  * Substitui o polling (`src/bot.js`) por API Gateway HTTP API + Lambda.
  * O Telegram envia POSTs para a URL do API Gateway → esta Lambda processa
- * o update via `bot.processUpdate()`.
+ * o update via `handleUpdate()` (aguardado até as respostas saírem).
  *
-  * Handlers exportados:
+ * Handlers exportados:
  *   - handler()       → invocado pelo API Gateway (webhook)
  *   - fetchHandler()  → invocado pelo EventBridge (cron diário, fetch + S3 cache update)
  *
@@ -18,52 +18,59 @@
 import TelegramBot from 'node-telegram-bot-api';
 import { config } from 'dotenv';
 import NormalizedCache from './cache.js';
-import { registerHandlers } from './handlers.js';
+import { CINEMAS, loadPrefs } from './cinemas.js';
+import { handleUpdate } from './handlers.js';
 import { fetchNormalized, fetchUpcoming } from './api.js';
 
-// Carrega .env em desenvolvimento local (sam local invoke)
 config();
 
-const token = process.env.TELEGRAM_BOT_TOKEN;
-if (!token) {
-  throw new Error('TELEGRAM_BOT_TOKEN não configurado');
+const cache = new NormalizedCache();
+let bot;
+let commandsSet = false;
+
+function getBot() {
+  if (!bot) {
+    const token = process.env.TELEGRAM_BOT_TOKEN;
+    if (!token) {
+      throw new Error('TELEGRAM_BOT_TOKEN não configurado');
+    }
+    bot = new TelegramBot(token, { polling: false });
+  }
+  return bot;
 }
 
-// Bot em modo webhook (sem polling, sem servidor HTTP interno)
-const bot = new TelegramBot(token, { polling: false });
-const cache = new NormalizedCache();
-
-// Estado de cold start — evita re-inicializar handlers a cada invoke (warm)
-let initialized = false;
-
-async function initialize() {
-  if (initialized) return;
-  initialized = true;
-  await cache.load();
-  await registerHandlers(bot, cache);
-
-  const webhookUrl = process.env.WEBHOOK_URL;
-  if (webhookUrl) {
-    try {
-      await bot.setWebHook(webhookUrl);
-      console.log(`✅ Webhook definido: ${webhookUrl}`);
-    } catch (err) {
-      console.warn('⚠️  Erro ao definir webhook:', err.message);
-    }
+async function setCommandsOnce() {
+  if (commandsSet) return;
+  commandsSet = true;
+  try {
+    await getBot().setMyCommands([
+      { command: 'start', description: 'Iniciar o bot e escolher cinema' },
+      { command: 'hoje', description: 'Filmes em cartaz no cinema selecionado' },
+      { command: 'proximos', description: 'Lançamentos futuros e pré-vendas' },
+      { command: 'cinemas', description: 'Trocar de cinema selecionado' },
+    ]);
+    console.log('✅ Menu de comandos configurado');
+  } catch (err) {
+    commandsSet = false;
+    console.error('❌ Erro ao configurar menu de comandos:', err.message);
   }
 }
 
 /**
  * Handler principal — invocado pelo API Gateway a cada update do Telegram.
+ * Recarrega cache e prefs a cada invoke para sobreviver a cold start / multi-instance.
  *
  * @param {object} event - Evento do API Gateway HTTP API (event.body = JSON string)
  * @returns {object} Resposta HTTP 200/500
  */
 export async function handler(event) {
-  await initialize();
   try {
+    await cache.load();
+    await loadPrefs();
+    await setCommandsOnce();
+
     const body = typeof event.body === 'string' ? JSON.parse(event.body) : event.body;
-    await bot.processUpdate(body);
+    await handleUpdate(getBot(), cache, body);
     return {
       statusCode: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -81,20 +88,29 @@ export async function handler(event) {
 
 /**
  * Handler de fetch + cache update — invocado pelo EventBridge (cron diário).
- *
- * Busca sessões e lançamentos para todos os teatros suportados e persiste
- * no S3 (ou data/cache.json localmente). Evita cold-start fetch na interação
- * do usuário e garante dados frescos à meia-noite em Maceió.
+ * Também registra o webhook do Telegram (WEBHOOK_URL só existe nesta função).
  *
  * @returns {object} Resposta 200
  */
 export async function fetchHandler() {
-  await initialize();
+  await cache.load();
 
-  const THEATERS = ['1162', '1230', '924']; // Cinesystem, Centerplex, Kinoplex
+  const webhookUrl = process.env.WEBHOOK_URL;
+  if (webhookUrl) {
+    try {
+      await getBot().setWebHook(webhookUrl);
+      console.log(`✅ Webhook definido: ${webhookUrl}`);
+    } catch (err) {
+      console.warn('⚠️  Erro ao definir webhook:', err.message);
+    }
+  }
+
+  await setCommandsOnce();
+
   let totalMovies = 0;
 
-  for (const theaterId of THEATERS) {
+  for (const cinema of CINEMAS) {
+    const theaterId = cinema.id;
     try {
       const normalized = await fetchNormalized(null, theaterId);
       cache.mergeMovies(normalized.movies);

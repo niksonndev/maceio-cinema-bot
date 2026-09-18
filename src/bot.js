@@ -11,6 +11,7 @@ import TelegramBot from 'node-telegram-bot-api';
 import express from 'express';
 import { config } from 'dotenv';
 import NormalizedCache from './cache.js';
+import { loadPrefs } from './cinemas.js';
 import { registerHandlers } from './handlers.js';
 
 config();
@@ -35,7 +36,7 @@ app.get('/', (_req, res) => {
     heapTotal: (mem.heapTotal / 1024 / 1024).toFixed(2),
     rss: (mem.rss / 1024 / 1024).toFixed(2),
   };
-     console.log('📡 Health check recebido', memMB);
+  console.log('📡 Health check recebido', memMB);
   res.json({
     status: '✅ Bot está online!',
     timestamp: new Date().toISOString(),
@@ -105,6 +106,7 @@ bot.on('polling', () => {
 
 (async () => {
   await cache.load();
+  await loadPrefs();
   await setCommands();
   registerHandlers(bot, cache);
 
@@ -117,12 +119,12 @@ bot.on('polling', () => {
 
   bot.startPolling({ restart: true });
 
-    server = app.listen(PORT, '0.0.0.0', () => {
+  server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`✅ Bot subiu na porta ${PORT} (host 0.0.0.0)`);
     console.log(`📡 Health check: http://0.0.0.0:${PORT}/`);
   });
 
-  console.log('🚀 Bot iniciado em modo polling...');
+  console.log('🚀 Bot iniciado em modo polling (local/dev)...');
   console.log('Aguardando mensagens. Envie /start para começar.');
 })();
 
