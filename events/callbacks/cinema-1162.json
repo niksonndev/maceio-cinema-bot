@@ -1,0 +1,16 @@
+{
+  "version": "2.0",
+  "routeKey": "POST /webhook",
+  "rawPath": "/prod/webhook",
+  "headers": {
+    "content-type": "application/json"
+  },
+  "requestContext": {
+    "http": {
+      "method": "POST",
+      "path": "/prod/webhook"
+    }
+  },
+  "body": "{\"update_id\":6,\"callback_query\":{\"id\":\"cb1\",\"from\":{\"id\":123456,\"is_bot\":false,\"first_name\":\"Test\"},\"message\":{\"message_id\":10,\"from\":{\"id\":1,\"is_bot\":true},\"chat\":{\"id\":123456,\"type\":\"private\"},\"date\":1700000000,\"text\":\"escolha\"},\"chat_instance\":\"1\",\"data\":\"cinema_1162\"}}",
+  "isBase64Encoded": false
+}

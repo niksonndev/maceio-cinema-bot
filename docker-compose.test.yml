@@ -1,0 +1,38 @@
+services:
+  localstack:
+    image: localstack/localstack:3.8
+    environment:
+      SERVICES: s3
+      AWS_DEFAULT_REGION: us-east-1
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'python3',
+          '-c',
+          "import urllib.request; urllib.request.urlopen('http://localhost:4566/_localstack/health')",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  test:
+    image: node:22-bookworm
+    working_dir: /app
+    volumes:
+      - .:/app
+    depends_on:
+      localstack:
+        condition: service_healthy
+    environment:
+      TELEGRAM_BOT_TOKEN: test-token
+      S3_BUCKET: maceio-cine-test
+      PREFS_KEY: prefs.json
+      CACHE_KEY: cache.json
+      AWS_ENDPOINT_URL: http://localstack:4566
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_REGION: us-east-1
+      AWS_DEFAULT_REGION: us-east-1
+    command: sh -c "npm ci && npx vitest run"

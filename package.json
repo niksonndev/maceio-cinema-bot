@@ -4,15 +4,20 @@
   "description": "Bot de programação de cinemas em Maceió (Ingresso.com) para Telegram",
   "type": "module",
   "main": "src/index.js",
-    "scripts": {
+  "scripts": {
     "start": "node src/index.js",
     "bot:listen": "node src/bot.js",
-    "lint": "eslint src/",
-    "lint:fix": "eslint src/ --fix",
-    "format": "prettier --write src/",
-    "format:check": "prettier --check src/",
+    "test": "bash scripts/test.sh",
+    "test:docker": "docker compose -f docker-compose.test.yml run --rm --build test",
+    "test:watch": "docker compose -f docker-compose.test.yml run --rm test sh -c \"npm ci && npx vitest\"",
+    "lint": "eslint src/ test/",
+    "lint:fix": "eslint src/ test/ --fix",
+    "format": "prettier --write src/ test/",
+    "format:check": "prettier --check src/ test/",
     "sam:build": "sam build",
-    "sam:deploy": "sam deploy"
+    "sam:deploy": "sam deploy",
+    "sam:warm": "bash scripts/sam-warm.sh",
+    "sam:local": "bash scripts/sam-local.sh"
   },
   "keywords": [
     "cinema",
@@ -22,6 +27,11 @@
   ],
   "author": "",
   "license": "MIT",
+  "files": [
+    "src/**/*",
+    "package.json",
+    "package-lock.json"
+  ],
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1114.0",
     "axios": "^1.6.0",
@@ -34,6 +44,7 @@
     "eslint": "^10.0.3",
     "eslint-config-prettier": "^10.1.8",
     "globals": "^17.4.0",
-    "prettier": "^3.8.1"
+    "prettier": "^3.8.1",
+    "vitest": "^3.2.7"
   }
 }
