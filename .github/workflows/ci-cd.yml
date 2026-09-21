@@ -10,8 +10,11 @@ permissions:
   contents: read
 
 jobs:
-  ci:
+  telegram:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: telegram
     steps:
       - uses: actions/checkout@v4
 
@@ -19,16 +22,37 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: telegram/package-lock.json
 
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
 
+  whatsapp:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: whatsapp
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: whatsapp
+
+      - run: cargo test
+      - run: cargo build --release
+
   deploy:
-    needs: ci
+    needs: [telegram, whatsapp]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: telegram
     permissions:
       id-token: write
       contents: read
@@ -42,6 +66,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: telegram/package-lock.json
 
       - run: npm ci
 
