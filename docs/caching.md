@@ -7,11 +7,11 @@
 
 | Environment | Where | How |
 | ----------- | ----- | --- |
-| Local (`npm start` / `bot:listen`) | `data/cache.json` + `data/prefs.json` | File on disk |
+| Local (`cd telegram && npm start` / `bot:listen`) | `data/cache.json` + `data/prefs.json` | File on disk |
 | Production (SAM / Lambda) | S3 | Objects `CACHE_KEY` (`cache.json`) and `PREFS_KEY` (`prefs.json`) in bucket `S3_BUCKET` |
 | Tests (`npm test`) | LocalStack S3 | Same production code; `AWS_ENDPOINT_URL` points at the container |
 
-Choice is automatic in `src/cache.ts` / `src/cinemas.ts`: if `process.env.S3_BUCKET` is
+Choice is automatic in `telegram/src/cache.ts` / `telegram/src/cinemas.ts`: if `process.env.S3_BUCKET` is
 set, uses the AWS SDK (`GetObject` / `PutObject`); otherwise uses the local file.
 `AWS_ENDPOINT_URL` (with `forcePathStyle`) enables LocalStack without forking the code.
 
@@ -45,7 +45,7 @@ prefs.json
 
 ### Sessions and upcoming — daily expiration
 
-Implemented in `src/cache.ts`:
+Implemented in `telegram/src/cache.ts`:
 
 - `getSessions(date, theaterId)` → compares `fetchedAt` with the current day in `America/Maceio`. If the day differs, **deletes the entry** and returns `null` (cache miss → forces a new request).
 - `getUpcoming(theaterId)` → same logic.
@@ -69,7 +69,7 @@ return cached;  // valid
 
 ## Cache hit/miss logic
 
-Implemented in `src/data.ts`:
+Implemented in `telegram/src/data.ts`:
 
 ```js
 // getMoviesForDate()
@@ -100,7 +100,7 @@ its own daily expiration.
 ## Ratings cache (in-memory)
 
 ```js
-// src/ratings.ts
+// telegram/src/ratings.ts
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 const memoryCache = new Map();             // key: "title|year" → { at, data }
 ```

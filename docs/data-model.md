@@ -4,7 +4,7 @@
 
 ## 1. Persistent cache — `data/cache.json`
 
-Managed by the `NormalizedCache` class (`src/cache.ts`). Persisted to disk
+Managed by the `NormalizedCache` class (`telegram/src/cache.ts`). Persisted to disk
 (local) or S3 (production), along with `prefs.json`.
 
 ```jsonc
@@ -82,11 +82,11 @@ Managed by the `NormalizedCache` class (`src/cache.ts`). Persisted to disk
 
 #### `MovieStatic` (static data — rarely changes)
 
-Extracted by `extractMovieStatic()` in `src/normalize.ts`. Identical regardless of date/cinema.
+Extracted by `extractMovieStatic()` in `telegram/src/normalize.ts`. Identical regardless of date/cinema.
 
 #### `Session` (dynamic data — changes by day/time)
 
-Extracted by `extractSessions()` in `src/normalize.ts`. Each session has only the data relevant to the queried date/theater.
+Extracted by `extractSessions()` in `telegram/src/normalize.ts`. Each session has only the data relevant to the queried date/theater.
 
 #### `UpcomingItem` (future releases)
 
@@ -96,7 +96,7 @@ Extracted by `normalizeUpcomingFromSessions()`. Identifies movies that are **not
 
 ## 2. Display structure (denormalized)
 
-Produced by `denormalize(movies, sessions)` in `src/normalize.ts`. This is the format consumed by the formatting layer (`format.ts`).
+Produced by `denormalize(movies, sessions)` in `telegram/src/normalize.ts`. This is the format consumed by the formatting layer (`format.ts`).
 
 ```js
 {
@@ -131,7 +131,7 @@ Produced by `denormalize(movies, sessions)` in `src/normalize.ts`. This is the f
 
 ## 3. Ratings (in-memory)
 
-Temporary structure held in `src/ratings.ts`:
+Temporary structure held in `telegram/src/ratings.ts`:
 
 ```js
 // memoryCache: Map<string, { at: number, data: RatingsResult | null }>
@@ -151,7 +151,7 @@ RatingsResult = {
 
 ## 4. User preferences (persisted)
 
-Managed in `src/cinemas.ts`. Same dual backend as the cache:
+Managed in `telegram/src/cinemas.ts`. Same dual backend as the cache:
 
 - Local: `data/prefs.json`
 - Production / S3 tests: object `PREFS_KEY` (default `prefs.json`)

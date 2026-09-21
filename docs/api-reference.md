@@ -5,7 +5,7 @@
 ## Base configuration
 
 ```ts
-// src/api.ts
+// telegram/src/api.ts (WhatsApp: whatsapp/src/ingresso.rs)
 const BASE_URL = 'https://api-content.ingresso.com';
 const CITY_ID = 53;  // Maceió
 const DEFAULT_THEATER_ID = '1162';  // Cinesystem
@@ -46,7 +46,7 @@ Returns all sessions for a cinema — for all dates (past, today, and future).
 
 **Consumed by:** `fetchUpcoming()` → identifies future pre-sale releases.
 
-## Exported functions (`src/api.ts`)
+## Exported functions (`telegram/src/api.ts`)
 
 ### `fetchNormalized(date = null, theaterId = 1162)`
 
@@ -74,7 +74,7 @@ Returns all sessions for a cinema — for all dates (past, today, and future).
 
 ---
 
-## Normalization functions (`src/normalize.ts`)
+## Normalization functions (`telegram/src/normalize.ts`)
 
 ### `extractMovieStatic(raw)` → `MovieStatic`
 Extracts static (immutable) data from a raw API movie.

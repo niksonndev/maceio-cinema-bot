@@ -1,16 +1,15 @@
 # Deploy
 
-> Complete guide for deploying and operating the bot. The primary method is **AWS SAM**
-> (Lambda + API Gateway + EventBridge + S3). Render deploy is available
-> as historical reference (legacy).
+> Telegram: **AWS SAM** (Lambda + API Gateway + EventBridge + S3).  
+> WhatsApp: **Render Free** (Docker + whatsapp-rust). Run SAM commands from `telegram/`.
 
-## Deploy via AWS SAM (primary)
+## Telegram — AWS SAM
 
 ### Overview
 
 | Item | Detail |
 |---|---|
-| IaC | AWS SAM (`template.yaml`) |
+| IaC | AWS SAM (`telegram/template.yaml`) |
 | Runtime | AWS Lambda (Node.js 22.x) |
 | HTTP | Amazon API Gateway — HTTP API (`POST /webhook`) |
 | Schedule | Amazon EventBridge (`cron(0 3 * * ? *)` — midnight Maceió) |
@@ -25,9 +24,12 @@
 - IAM with permission to create Lambda, API Gateway, S3, EventBridge, IAM roles (`CAPABILITY_IAM`)
 - `TELEGRAM_BOT_TOKEN` (and optionally OMDb/TMDb)
 
+Working directory: **`telegram/`**.
+
 ### 1. Build
 
 ```bash
+cd telegram
 sam validate
 npm run sam:build   # tsc → dist/ then sam build
 ```
@@ -35,6 +37,7 @@ npm run sam:build   # tsc → dist/ then sam build
 ### 2. Deploy (first time — guided mode)
 
 ```bash
+cd telegram
 sam deploy --guided   # or: npm run sam:deploy (without --guided)
 ```
 
@@ -59,6 +62,7 @@ The URL only changes if the stack (or `HttpApi`) is recreated.
 After deploy, invoke FetchFunction once (cache warm + `setWebHook`):
 
 ```bash
+cd telegram
 set -a && source .env && set +a
 npm run sam:warm
 
@@ -79,33 +83,25 @@ curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
   -F "url=${WEBHOOK}"
 ```
 
-### 4. Cutover (leave Render / polling)
-
-Order matters:
-
-1. Successful `sam deploy`
-2. `npm run sam:warm` (warm + `setWebHook`) and confirm `getWebhookInfo`
-3. Smoke test on Telegram (`/start`, pick cinema, `/hoje`, `/proximos`)
-4. Confirm S3 objects (`CacheBucketName`: `cache.json` and `prefs.json` after use)
-5. **Only then** suspend/delete the Render Web Service and stop any `bot:listen` with the same token
-
-### 5. Subsequent deploys
+### 4. Subsequent deploys
 
 ```bash
+cd telegram
 npm run sam:build && sam deploy
 ```
 
-### 6. Local SAM development / testing
+### 5. Local SAM development / testing
 
 Requires Docker (SAM Lambda images):
 
 ```bash
+cd telegram
 npm test              # Vitest in Docker Compose + LocalStack
 npm run sam:local     # sam build + invoke per event in events/
 sam local start-api
 ```
 
-### Configuration (`samconfig.toml`)
+### Configuration (`telegram/samconfig.toml`)
 
 ```toml
 version = 0.1
@@ -117,17 +113,14 @@ confirm_changeset = true
 region = "sa-east-1"
 ```
 
-No need to pass `WebhookUrl` in `parameter_overrides` — the URL comes from
-`HttpApi` in `template.yaml`.
-
 ### CI/CD (GitHub Actions)
 
-The [`.github/workflows/ci-cd.yml`](../.github/workflows/ci-cd.yml) workflow runs on:
+[`.github/workflows/ci-cd.yml`](../.github/workflows/ci-cd.yml):
 
-- **Pull request to `main`:** lint, typecheck, and tests (Docker + LocalStack). No deploy.
-- **Push to `main`** (including PR merge): the same checks, then `sam deploy` and `sam:warm`.
+- **Pull request to `main`:** Telegram lint/typecheck/test (cwd `telegram/`) and WhatsApp `cargo test` / `cargo build --release` (cwd `whatsapp/`).
+- **Push to `main`:** the same checks, then `sam deploy` from `telegram/` and `sam:warm`.
 
-AWS auth is via **OIDC** (`aws-actions/configure-aws-credentials`), with no long-lived access keys.
+AWS auth is via **OIDC** (`aws-actions/configure-aws-credentials`).
 
 #### Repository secrets and variables
 
@@ -138,36 +131,11 @@ AWS auth is via **OIDC** (`aws-actions/configure-aws-credentials`), with no long
 | `OMDb_API_KEY` | Secret (optional) | SAM parameter `OMDbApiKey` |
 | `TMDB_API_KEY` | Secret (optional) | SAM parameter `TMDbApiKey` |
 
-The role must trust the OIDC provider `token.actions.githubusercontent.com`, restricted to this repository and `ref:refs/heads/main`, with permissions equivalent to guided deploy (CloudFormation, SAM S3, Lambda, API Gateway, EventBridge, IAM).
+The role must trust the OIDC provider `token.actions.githubusercontent.com`, restricted to this repository and `ref:refs/heads/main`.
 
-Role trust policy sketch:
+Manual deploys (`npm run sam:deploy` from `telegram/`) remain valid. The workflow passes `--no-confirm-changeset --no-fail-on-empty-changeset`.
 
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Principal": { "Federated": "arn:aws:iam::<ACCOUNT_ID>:oidc-provider/token.actions.githubusercontent.com" },
-      "Action": "sts:AssumeRoleWithWebIdentity",
-      "Condition": {
-        "StringEquals": {
-          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
-        },
-        "StringLike": {
-          "token.actions.githubusercontent.com:sub": "repo:<OWNER>/<REPO>:ref:refs/heads/main"
-        }
-      }
-    }
-  ]
-}
-```
-
-Replace `<ACCOUNT_ID>`, `<OWNER>`, and `<REPO>`. You also need to create the AWS OIDC identity provider for GitHub if it does not already exist.
-
-Manual deploys (`npm run sam:deploy`) remain valid; `confirm_changeset` in `samconfig.toml` applies only to the local CLI. The workflow passes `--no-confirm-changeset --no-fail-on-empty-changeset`.
-
-### `template.yaml` resources
+### `telegram/template.yaml` resources
 
 - `CacheBucket` — S3 (name generated by CloudFormation)
 - `HttpApi` — HTTP API (`StageName: prod`) with `POST /webhook` route
@@ -180,22 +148,58 @@ Manual deploys (`npm run sam:deploy`) remain valid; `confirm_changeset` in `samc
 ```bash
 curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getMe"
 curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getMyCommands"
-# Production: url = stack WebhookUrl
 curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo"
 ```
 
 ---
 
-## Deploy on Render (legacy)
+## WhatsApp — Render Free
 
-> Archived. Prefer AWS SAM above.
+Unofficial WhatsApp Web client ([whatsapp-rust](https://github.com/oxidezap/whatsapp-rust)). **Dedicated number only** — ban risk is non-zero.
+
+### Overview
 
 | Item | Detail |
 | --- | --- |
-| Platform | Render Web Service |
-| Start | `npm run bot:listen` |
-| Cache | `data/cache.json` (ephemeral in the container) |
-| Keep-alive | Auto-ping via `RENDER_EXTERNAL_URL` (removed from current code) |
+| IaC | [`render.yaml`](../render.yaml) |
+| Image | [`whatsapp/Dockerfile`](../whatsapp/Dockerfile) (multi-stage Rust → debian slim) |
+| Plan | Free (512 MB, 0.1 CPU, 750 instance-hours/month — enough for one 24/7 service) |
+| Health | `GET /` on `0.0.0.0:$PORT` |
+| Keep-alive | Ping `RENDER_EXTERNAL_URL` every 10 minutes (avoids 15-minute idle sleep) |
+| Session | SQLite at `SESSION_PATH` (`/tmp/whatsapp.db` on Render). No persistent disk — QR again after redeploy/sleep if the file is gone |
+| Prefs | In-memory only |
+| Engine | `whatsapp-rust` **without** the `simd` feature (stable Rust) |
 
-Useful only as historical reference while the `cinesystem-scrapper.onrender.com`
-service still exists. After cutover, it can be shut down.
+### Local
+
+```bash
+cd whatsapp
+cp .env.example .env
+cargo run
+```
+
+On first start, scan the QR in the logs: WhatsApp → Settings → Linked devices. Health: `http://localhost:10000/`.
+
+Optional: `OMDb_API_KEY` / `TMDB_API_KEY` for ratings.
+
+### Deploy
+
+Connect the GitHub repo to Render (Blueprint from `render.yaml`) or create a **Web Service**:
+
+- Runtime: Docker
+- Dockerfile path: `whatsapp/Dockerfile`
+- Context: `whatsapp`
+- Plan: Free
+- Health check path: `/`
+
+Set optional env vars `OMDb_API_KEY` / `TMDB_API_KEY` in the dashboard (`sync: false` in the Blueprint). Render injects `PORT` and `RENDER_EXTERNAL_URL`.
+
+After the first deploy, open logs, scan the QR with the dedicated number. Subsequent deploys may drop the session (ephemeral FS).
+
+### Commands
+
+Text (with or without `/`): `start`, `hoje`, `proximos`, `cinemas`, `atualizar`. Pick a cinema with `1` / `2` / `3` or the chain name.
+
+### Legacy Telegram-on-Render
+
+The old Node `bot:listen` Render service is retired. Telegram is SAM-only; Render is WhatsApp-only.

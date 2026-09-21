@@ -4,11 +4,18 @@
 
 ### Overview
 
-**Maceió Cine Bot** is a Telegram bot that queries the Ingresso.com public API for real-time cinema schedules in Maceió, Brazil. It is a TypeScript Node.js application (ES Modules, `"type": "module"`), compiled with `tsc` to `dist/` for Lambda.
+**Maceió Cine Bot** is a monorepo with two apps that query the Ingresso.com public API for cinema schedules in Maceió, Brazil:
 
-**Production** runs on AWS SAM (Lambda + API Gateway webhook + EventBridge + S3 cache + S3 prefs). **Local/dev** can use polling via Express.
+| App | Path | Host | Messaging |
+|---|---|---|---|
+| Telegram | `telegram/` | AWS SAM (Lambda + API Gateway + EventBridge + S3) | Telegram Bot API |
+| WhatsApp | `whatsapp/` | Render Free Web Service | [whatsapp-rust](https://github.com/oxidezap/whatsapp-rust) (unofficial; dedicated number) |
+
+The TypeScript Telegram app is compiled with `tsc` to `telegram/dist/` for Lambda. The WhatsApp app is a Rust binary (`maceio-cine-whatsapp`).
 
 ### Entry points
+
+#### Telegram (`cd telegram`)
 
 | Script | Command | Purpose |
 |---|---|---|
@@ -23,9 +30,17 @@
 | `npm run sam:local` | `scripts/sam-local.sh` | `sam local invoke` per event file (Docker). |
 | Lambda | `dist/lambda.handler` / `dist/lambda.fetchHandler` | Production webhook + daily cache warm. |
 
+#### WhatsApp (`cd whatsapp`)
+
+| Command | Purpose |
+|---|---|
+| `cargo run` | Local WhatsApp bot + health on `0.0.0.0:$PORT`. Prints a QR on first link. |
+| `cargo test` | Unit tests (normalize/format/cinemas). |
+| `cargo build --release` | Release binary (used by Docker / Render). |
+
 ### Environment variables
 
-Copy `.env.example` to `.env`. Only `TELEGRAM_BOT_TOKEN` is required for the bot; the CLI works without any tokens.
+**Telegram** — copy `telegram/.env.example` to `telegram/.env`. Only `TELEGRAM_BOT_TOKEN` is required for the bot; the CLI works without any tokens.
 
 - `TELEGRAM_BOT_TOKEN` — required for `npm run bot:listen` / Lambda
 - `OMDb_API_KEY` — optional, enables IMDb/RT ratings
@@ -35,13 +50,21 @@ Copy `.env.example` to `.env`. Only `TELEGRAM_BOT_TOKEN` is required for the bot
 - `AWS_ENDPOINT_URL` — tests only (LocalStack)
 - `PORT` — local polling health check only (default `10000`)
 
+**WhatsApp** — copy `whatsapp/.env.example` to `whatsapp/.env`.
+
+- `PORT` — health HTTP port (Render injects this; default `10000`)
+- `SESSION_PATH` — SQLite session file (default `data/whatsapp.db`; `/tmp/whatsapp.db` on Render)
+- `RENDER_EXTERNAL_URL` — set by Render; keep-alive ping every 10 minutes
+- `OMDb_API_KEY` / `TMDB_API_KEY` — optional ratings
+- Cinema prefs are **in-memory only** (lost on restart)
+
 ### Running without Telegram token
 
-Use `npm start` to exercise the core data pipeline (API fetch, normalization, cache) without needing a Telegram token. The best automated check is `npm test` (Docker).
+From `telegram/`, use `npm start` to exercise the core data pipeline without a Telegram token. The best automated check is `npm test` (Docker). From `whatsapp/`, `cargo test` does not need WhatsApp.
 
 ### Lint / Test / Build
 
-The project includes ESLint, Prettier, and Vitest (run in Docker):
+Telegram (`cd telegram`):
 
 - `npm test` — Docker Compose (Node 22 + LocalStack) when Docker is available; otherwise Vitest on the host
 - `npm run typecheck` — TypeScript (`src/` + `test/`)
@@ -50,9 +73,14 @@ The project includes ESLint, Prettier, and Vitest (run in Docker):
 - `npm run format` — format `src/` and `test/` with Prettier
 - `npm run format:check` — verify formatting
 - `npm run build` — compile TypeScript to `dist/`
-- `sam validate` / `npm run sam:build` — SAM template validation and package build
+- `sam validate` / `npm run sam:build` — SAM template validation and package build (cwd `telegram/`)
 
-### Verifying the bot without Telegram login
+WhatsApp (`cd whatsapp`):
+
+- `cargo test`
+- `cargo build --release`
+
+### Verifying the Telegram bot without Telegram login
 
 With `TELEGRAM_BOT_TOKEN` set:
 
@@ -69,11 +97,11 @@ curl -s http://localhost:10000/
 
 ### Notes
 
-- No database — cache is `data/cache.json` locally, or S3 (`CACHE_KEY`, default `cache.json`) when `S3_BUCKET` is set. Cinema preferences are `data/prefs.json` locally or S3 (`PREFS_KEY`, default `prefs.json`).
-- The `data/` directory is created automatically on first local run.
-- The Ingresso.com API is public and requires no API key; it uses browser-like User-Agent headers (defined in `src/api.ts`).
-- Express health check runs on `PORT` (default `10000`) and is part of `bot.ts` (local/dev only).
+- Telegram: no database — cache is `data/cache.json` locally, or S3 (`CACHE_KEY`, default `cache.json`) when `S3_BUCKET` is set. Cinema preferences are `data/prefs.json` locally or S3 (`PREFS_KEY`, default `prefs.json`).
+- WhatsApp: in-process schedule cache + in-memory prefs. Session is SQLite at `SESSION_PATH` (ephemeral on Render Free — QR again after sleep/redeploy).
+- The Ingresso.com API is public and requires no API key; it uses browser-like User-Agent headers.
 - Do not run `npm run bot:listen` against the same bot token while the production webhook is active (polling vs webhook conflict).
-- The `.env` file must be created from `.env.example` and `TELEGRAM_BOT_TOKEN` filled in for bot mode. The `TELEGRAM_BOT_TOKEN` secret is injected as an env var; write it to `.env` with: `sed -i "s|^TELEGRAM_BOT_TOKEN=.*|TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}|" .env`
+- Telegram `.env` is created from `telegram/.env.example`. Write the token with: `sed -i "s|^TELEGRAM_BOT_TOKEN=.*|TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}|" telegram/.env`
 - BotFunction reloads cache + prefs on every invoke and awaits `handleUpdate` (does not use `processUpdate`).
-- GitHub Actions (`.github/workflows/ci-cd.yml`): PRs run lint + typecheck + test; push to `main` also `sam deploy` (OIDC) and warms FetchFunction.
+- GitHub Actions (`.github/workflows/ci-cd.yml`): PRs run Telegram lint/typecheck/test **and** WhatsApp `cargo test`/`cargo build --release`; push to `main` also `sam deploy` (OIDC) from `telegram/` and warms FetchFunction.
+- WhatsApp is unofficial (whatsapp-rust). Use a **dedicated number** you can afford to lose. Render Free sleeps after 15 minutes without traffic unless keep-alive is working (`RENDER_EXTERNAL_URL`).

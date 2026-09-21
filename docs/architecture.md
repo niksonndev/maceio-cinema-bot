@@ -1,109 +1,104 @@
 # Architecture
 
-> Technical architecture documentation for **Maceió Cine Bot**.
+> Technical architecture for **Maceió Cine Bot** (Telegram + WhatsApp).
 
 ## Overview
 
-TypeScript application (Node.js, ES Modules) that queries the public Ingresso.com API
-and exposes Maceió cinema schedules via a Telegram bot. No database —
-uses a **JSON cache** (`data/cache.json` locally, or **S3** when `S3_BUCKET` is
-set) and **persisted preferences** (`data/prefs.json` / S3 `prefs.json`).
-Ratings stay in an in-memory Map (24h TTL).
-
-### Production (AWS SAM)
+Two apps share the same Ingresso.com domain (Maceió, city `53`) but not runtime code.
 
 ```
-Telegram ──POST /webhook──► API Gateway HTTP API ──► Lambda (dist/lambda.handler)
-                                                         │
-                                                         ├─► cache.ts + prefs (S3)
-                                                         └─► Ingresso.com API
+Telegram users ──POST /webhook──► API Gateway ──► Lambda (telegram/dist/lambda.handler)
+                                                      ├─► cache + prefs (S3)
+                                                      └─► Ingresso.com
 
-EventBridge (cron 03:00 UTC) ──► Lambda (dist/lambda.fetchHandler)
-                                      ├─► fetch + write cache to S3
-                                      └─► setWebHook(WEBHOOK_URL)
+EventBridge (03:00 UTC) ──► Lambda fetchHandler ──► S3 cache + setWebHook
+
+WhatsApp users ──► whatsapp-rust session (Render)
+                      ├─► in-memory schedule cache + prefs
+                      ├─► Ingresso.com
+                      └─► GET / health + RENDER_EXTERNAL_URL keep-alive
 ```
 
-BotFunction does **not** set `WEBHOOK_URL` (that would create a CloudFormation
-cycle with HttpApi). FetchFunction registers the webhook with Telegram.
+## Telegram (`telegram/`)
 
-Each BotFunction invoke reloads cache and prefs from S3 and **awaits**
-`handleUpdate()` before returning HTTP 200.
+TypeScript (Node.js, ES Modules). Production: AWS SAM. Local: polling + Express.
 
-### Local / development (polling)
+JSON cache (`data/cache.json` or S3) and prefs (`data/prefs.json` / S3). Ratings: in-memory Map (24h TTL).
 
-```
-npm run bot:listen → src/bot.ts (polling + Express health check)
-                         └─► cache.ts / cinemas.ts → data/cache.json + data/prefs.json
-```
+BotFunction reloads cache and prefs from S3 on **every** invoke and **awaits** `handleUpdate()` before HTTP 200.
 
 Do not run local polling with the same token while the production webhook is active.
 
-## Modules (`src/`)
+### Modules (`telegram/src/`)
 
-| Module          | Responsibility                                                                                  |
-| --------------- | ----------------------------------------------------------------------------------------------- |
-| `api.ts`        | HTTP client (Axios) for the public Ingresso.com API. Fetches sessions and releases by `theaterId`. |
-| `normalize.ts`  | Separates **static** movie data from **dynamic** session data. Includes `denormalize()`.      |
-| `cache.ts`      | JSON persistence (file or S3): movies, sessions by theater/date, upcoming releases.             |
-| `data.ts`       | Orchestrates `cache ↔ api ↔ normalize` with cache-hit logic before calling the API.             |
-| `cinemas.ts`    | Definition of the 3 cinemas and per-user preferences (local file or S3).                        |
-| `format.ts`     | Markdown message formatting for Telegram (cards, prices, dates).                                |
-| `ratings.ts`    | Fetches ratings (IMDb/RT via OMDb, TMDb fallback) with in-memory cache (24h TTL).               |
-| `keyboards.ts`  | Telegram inline keyboard builders.                                                              |
-| `handlers.ts`   | `handleUpdate` + commands (`/start`, `/hoje`, `/proximos`, `/cinemas`, `/atualizar`) and callbacks. |
-| `bot.ts`        | Local entry: Telegram polling + Express health check + graceful shutdown.                       |
-| `lambda.ts`     | Production entry: webhook (`handler`) + daily warm (`fetchHandler`).                            |
-| `index.ts`      | CLI for manual verification (fetch + console). No token required.                               |
-| `types.ts`      | Shared domain types.                                                                            |
+| Module | Responsibility |
+| --- | --- |
+| `api.ts` | Ingresso.com HTTP client |
+| `normalize.ts` | Static movies vs dynamic sessions; `denormalize()` |
+| `cache.ts` | File or S3 persistence |
+| `data.ts` | Cache-aside orchestration |
+| `cinemas.ts` | 3 theaters + persisted prefs |
+| `format.ts` | Telegram Markdown cards |
+| `ratings.ts` | OMDb / TMDb (24h) |
+| `keyboards.ts` | Inline keyboards |
+| `handlers.ts` | Commands + carousel callbacks |
+| `bot.ts` | Local polling |
+| `lambda.ts` | Webhook + daily warm |
+| `index.ts` | CLI |
+| `types.ts` | Domain types |
 
-## Data flow
+## WhatsApp (`whatsapp/`)
 
-### 1. Today's movies (`/hoje`, `filmes_hoje`)
+Rust binary (`maceio-cine-whatsapp`) using [whatsapp-rust](https://github.com/oxidezap/whatsapp-rust) (Baileys-class unofficial client). One Render Free service: session + cinema logic + health HTTP.
+
+| Module | Responsibility |
+| --- | --- |
+| `ingresso.rs` | Ingresso HTTP (same URLs/headers as `api.ts`) |
+| `normalize.rs` / `cache.rs` / `data.rs` | In-process port of the TS pipeline |
+| `cinemas.rs` / `prefs.rs` | Same 3 theaters; **in-memory** jid → theater |
+| `format.rs` / `ratings.rs` | Plain-text cards |
+| `handlers.rs` | `start` / `hoje` / `proximos` / `cinemas` / `atualizar` |
+| `http.rs` | `GET /` on `0.0.0.0:$PORT` + keep-alive ping |
+| `wa.rs` | QR, connect, `on_message` |
+| `main.rs` | Process entry |
+
+No Telegram carousel. Prefs and schedule cache die with the process. Session SQLite is ephemeral on Render Free (QR again after sleep/redeploy). Keep-alive every 10 minutes when `RENDER_EXTERNAL_URL` is set. One Free instance (~750 h/month) is enough for 24/7.
+
+## Data flow (both channels)
+
+### Today's movies
 
 ```
-handlers.ts
-  └─ getMoviesForDate(cache, date, theaterId)        ← src/data.ts
-       ├─ cache.getSessions(date, theaterId) → HIT? return from cache
-       └─ MISS → api.fetchNormalized(date, theaterId)
-                    └─ normalize.normalizeSessionsResponse(raw)
-                         ├─ mergeMovies() → cache.movies (static)
-                         ├─ setSessions()  → cache.sessions (dynamic)
-                         └─ denormalize(movies, sessions) → movies + sessions array
-                        └─ format.formatSingleMovieCard() → Telegram message
+handlers
+  └─ get_movies_for_date(cache, date, theaterId)
+       ├─ cache hit → denormalize
+       └─ miss → fetch_normalized → merge movies / set sessions → denormalize
+                        └─ format card
 ```
 
-### 2. Upcoming releases (`/proximos`, `proximos_lancamentos`)
+### Upcoming
 
 ```
-handlers.ts
-  └─ getUpcomingMovies(cache, theaterId)             ← src/data.ts
-       ├─ cache.getUpcoming(theaterId) → HIT? return from cache
-       └─ MISS → api.fetchUpcoming(theaterId)
-                    └─ normalize.normalizeUpcomingFromSessions(futureDates, todayIds)
-                         └─ setUpcoming() → cache.upcoming
-                        └─ format.formatSingleUpcomingCard() → Telegram message
+handlers
+  └─ get_upcoming_movies(cache, theaterId)
+       ├─ cache hit
+       └─ miss → fetch_upcoming (pre-sale only) → set upcoming → format card
 ```
 
 ## Supported theaters
 
-| `theaterId` | Cinema     | Shopping                    |
-| ----------- | ---------- | --------------------------- |
-| `1162`      | Cinesystem | Parque Shopping Maceió      |
-| `1230`      | Centerplex | Shopping Pátio Maceió       |
-| `924`       | Kinoplex   | Maceió Shopping             |
+| `theaterId` | Cinema | Shopping |
+| --- | --- | --- |
+| `1162` | Cinesystem | Parque Shopping Maceió |
+| `1230` | Centerplex | Shopping Pátio Maceió |
+| `924` | Kinoplex | Maceió Shopping |
 
-City ID in the API: `53` (Maceió).
+## Entry points
 
-## Entry points (`package.json`)
-
-| Script              | Command              | Purpose                                             |
-| ------------------- | -------------------- | --------------------------------------------------- |
-| `npm start`         | `tsx src/index.ts`   | CLI — validates the pipeline (fetch + console). No token. |
-| `npm run bot:listen`| `tsx src/bot.ts`     | Local bot (polling) + Express health check. Requires `TELEGRAM_BOT_TOKEN`. |
-| `npm test`          | Docker Compose       | Vitest suites (Node 22 + LocalStack S3). Requires Docker. |
-| `npm run typecheck` | `tsc --noEmit`       | TypeScript check.                                   |
-| `npm run build`     | `tsc -p tsconfig.json` | Compiles `src/` → `dist/`.                        |
-| `npm run sam:build` | `npm run build && sam build` | Packages the SAM app.                        |
-| `npm run sam:deploy`| `sam deploy`         | Deploys the stack (requires AWS credentials).       |
-| `npm run sam:warm`  | `scripts/sam-warm.sh`| Invokes FetchFunction (webhook + cache warm).       |
-| `npm run sam:local` | `scripts/sam-local.sh` | `sam local invoke` per event (Docker).            |
+| Where | Command | Purpose |
+| --- | --- | --- |
+| `telegram/` | `npm start` | CLI pipeline (no token) |
+| `telegram/` | `npm run bot:listen` | Local Telegram polling |
+| `telegram/` | `npm test` / `sam:build` / `sam:deploy` / `sam:warm` | Tests and SAM |
+| `whatsapp/` | `cargo run` | WhatsApp bot + health |
+| `whatsapp/` | `cargo test` | Unit tests |
