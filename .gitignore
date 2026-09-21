@@ -13,3 +13,6 @@ awscliv2.zip
 awscliv2.tgz
 aws-sam-cli-linux-*.zip
 sam-installation/
+target/
+*.db
+whatsapp/whatsapp.db
