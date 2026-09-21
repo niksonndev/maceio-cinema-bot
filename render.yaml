@@ -1,0 +1,18 @@
+# yaml-language-server: $schema=https://render.com/schema/render.yaml.json
+services:
+  - type: web
+    name: maceio-wa-bot
+    runtime: docker
+    plan: free
+    dockerfilePath: ./whatsapp/Dockerfile
+    dockerContext: ./whatsapp
+    healthCheckPath: /
+    envVars:
+      - key: RUST_LOG
+        value: info
+      - key: SESSION_PATH
+        value: /tmp/whatsapp.db
+      - key: OMDb_API_KEY
+        sync: false
+      - key: TMDB_API_KEY
+        sync: false
