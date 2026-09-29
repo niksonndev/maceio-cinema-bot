@@ -109,6 +109,61 @@ pub fn extract_sessions(
         .collect()
 }
 
+fn canonical_movie_key(raw: &IngressoRawMovie) -> String {
+    if let Some(url_key) = raw
+        .url_key
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return format!("url_key:{url_key}");
+    }
+
+    let title = raw.title.trim();
+    let original_title = raw
+        .original_title
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_default();
+    let duration = raw
+        .duration
+        .as_ref()
+        .and_then(|value| match value {
+            serde_json::Value::Number(number) => number
+                .as_i64()
+                .or_else(|| number.as_f64().map(|value| value as i64)),
+            serde_json::Value::String(value) => value.parse().ok(),
+            _ => None,
+        })
+        .map(|value| value.to_string())
+        .unwrap_or_default();
+    let genres = raw
+        .genres
+        .as_deref()
+        .map(|genres| genres.join("|"))
+        .unwrap_or_default();
+    let edition = [
+        raw.content_rating.as_deref().unwrap_or_default(),
+        raw.distributor.as_deref().unwrap_or_default(),
+        if raw.is_reexhibition.unwrap_or(false) {
+            "reexhibition"
+        } else {
+            ""
+        },
+        if raw.in_pre_sale.unwrap_or(false) {
+            "pre_sale"
+        } else {
+            ""
+        },
+        &duration,
+        &genres,
+    ]
+    .join("|");
+
+    format!("title:{title}|original:{original_title}|edition:{edition}")
+}
+
 pub fn normalize_sessions_response(entry: Option<&IngressoDateEntry>) -> NormalizedSessions {
     let Some(entry) = entry else {
         return empty_normalized();
@@ -119,11 +174,17 @@ pub fn normalize_sessions_response(entry: Option<&IngressoDateEntry>) -> Normali
 
     let mut movies = HashMap::new();
     let mut sessions = Vec::new();
+    let mut primary_movie_ids = HashMap::new();
+
     for raw in raw_movies {
+        let key = canonical_movie_key(raw);
+        let movie_id = *primary_movie_ids.entry(key).or_insert(raw.id);
+
         movies
-            .entry(raw.id.to_string())
+            .entry(movie_id.to_string())
             .or_insert_with(|| extract_movie_static(raw));
-        sessions.extend(extract_sessions(raw.id, raw.session_types.as_deref()));
+
+        sessions.extend(extract_sessions(movie_id, raw.session_types.as_deref()));
     }
 
     NormalizedSessions {
@@ -147,13 +208,35 @@ pub fn normalize_upcoming_from_sessions(
     future_dates: &[IngressoDateEntry],
     today_movie_ids: &HashSet<i64>,
 ) -> Vec<UpcomingItem> {
-    let mut seen = HashMap::new();
+    let mut seen: HashMap<String, UpcomingItem> = HashMap::new();
 
     for date_entry in future_dates {
         for raw in date_entry.movies.as_deref().unwrap_or_default() {
-            if today_movie_ids.contains(&raw.id) || seen.contains_key(&raw.id) {
+            if today_movie_ids.contains(&raw.id) {
                 continue;
             }
+
+            let key = canonical_movie_key(raw);
+            if let Some(existing) = seen.get_mut(&key) {
+                if let Some(price) = raw
+                    .session_types
+                    .as_deref()
+                    .or(raw.rooms.as_deref())
+                    .unwrap_or_default()
+                    .iter()
+                    .flat_map(|group| group.sessions.as_deref().unwrap_or_default())
+                    .filter_map(|session| session.price)
+                    .min_by(|left, right| left.total_cmp(right))
+                {
+                    existing.price_from = Some(
+                        existing
+                            .price_from
+                            .map_or(price, |current| current.min(price)),
+                    );
+                }
+                continue;
+            }
+
             let poster = raw.images.as_ref().and_then(|images| {
                 images
                     .iter()
@@ -185,7 +268,7 @@ pub fn normalize_upcoming_from_sessions(
                 }
             }
             seen.insert(
-                raw.id,
+                key,
                 UpcomingItem {
                     id: raw.id,
                     title: raw.title.clone(),
@@ -256,7 +339,7 @@ mod tests {
         IngressoDateEntry, IngressoRawSession, IngressoSessionGroup, IngressoSessionType,
         MovieStatic,
     };
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
 
     #[test]
     fn normalizes_api_movies_with_string_ids() {
@@ -312,6 +395,96 @@ mod tests {
             sessions[0].checkout_url.as_deref(),
             Some("https://example.com")
         );
+    }
+
+    #[test]
+    fn deduplicates_same_movie_across_multiple_provider_ids() {
+        let entry: IngressoDateEntry = serde_json::from_value(serde_json::json!({
+            "date": "2026-09-29",
+            "movies": [
+                {
+                    "id": "101",
+                    "title": "Vingadores: Ultimato",
+                    "urlKey": "vingadores-ultimato",
+                    "sessionTypes": [{
+                        "sessions": [{
+                            "id": "session-a",
+                            "time": "18:30",
+                            "price": 29.9
+                        }]
+                    }]
+                },
+                {
+                    "id": "202",
+                    "title": "Vingadores: Ultimato",
+                    "urlKey": "vingadores-ultimato",
+                    "sessionTypes": [{
+                        "sessions": [{
+                            "id": "session-b",
+                            "time": "21:00",
+                            "price": 39.9
+                        }]
+                    }]
+                }
+            ]
+        }))
+        .unwrap();
+
+        let normalized = super::normalize_sessions_response(Some(&entry));
+
+        assert_eq!(normalized.movies.len(), 1);
+        assert_eq!(normalized.sessions.len(), 2);
+        assert!(normalized
+            .sessions
+            .iter()
+            .all(|session| session.movie_id == 101 || session.movie_id == 202));
+    }
+
+    #[test]
+    fn deduplicates_upcoming_movies_by_canonical_identity() {
+        let future = vec![
+            IngressoDateEntry {
+                date: "2026-10-01".into(),
+                date_formatted: None,
+                day_of_week: None,
+                movies: Some(vec![serde_json::from_value(serde_json::json!({
+                    "id": "101",
+                    "title": "Vingadores: Ultimato",
+                    "urlKey": "vingadores-ultimato",
+                    "sessionTypes": [{
+                        "sessions": [{
+                            "id": "session-a",
+                            "time": "18:30",
+                            "price": 29.9
+                        }]
+                    }]
+                }))
+                .unwrap()]),
+            },
+            IngressoDateEntry {
+                date: "2026-10-02".into(),
+                date_formatted: None,
+                day_of_week: None,
+                movies: Some(vec![serde_json::from_value(serde_json::json!({
+                    "id": "202",
+                    "title": "Vingadores: Ultimato",
+                    "urlKey": "vingadores-ultimato",
+                    "sessionTypes": [{
+                        "sessions": [{
+                            "id": "session-b",
+                            "time": "21:00",
+                            "price": 39.9
+                        }]
+                    }]
+                }))
+                .unwrap()]),
+            },
+        ];
+
+        let upcoming = super::normalize_upcoming_from_sessions(&future, &HashSet::new());
+
+        assert_eq!(upcoming.len(), 1);
+        assert_eq!(upcoming[0].title, "Vingadores: Ultimato");
     }
 
     #[test]

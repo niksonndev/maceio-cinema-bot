@@ -6,6 +6,23 @@ use aws_sdk_s3::primitives::ByteStream;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+async fn shared_s3_client() -> &'static aws_sdk_s3::Client {
+    static CLIENT: tokio::sync::OnceCell<aws_sdk_s3::Client> = tokio::sync::OnceCell::const_new();
+
+    CLIENT
+        .get_or_init(|| async {
+            let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+            let mut s3_config = aws_sdk_s3::config::Builder::from(&config);
+            if let Ok(endpoint) = std::env::var("AWS_ENDPOINT_URL") {
+                if !endpoint.is_empty() {
+                    s3_config = s3_config.endpoint_url(endpoint).force_path_style(true);
+                }
+            }
+            aws_sdk_s3::Client::from_conf(s3_config.build())
+        })
+        .await
+}
+
 enum Backend {
     Local(PathBuf),
     S3 {
@@ -25,15 +42,9 @@ impl JsonStore {
             .ok()
             .filter(|bucket| !bucket.is_empty())
         {
-            let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
-            let mut s3_config = aws_sdk_s3::config::Builder::from(&config);
-            if let Ok(endpoint) = std::env::var("AWS_ENDPOINT_URL") {
-                if !endpoint.is_empty() {
-                    s3_config = s3_config.endpoint_url(endpoint).force_path_style(true);
-                }
-            }
+            let client = shared_s3_client().await.clone();
             Backend::S3 {
-                client: aws_sdk_s3::Client::from_conf(s3_config.build()),
+                client,
                 bucket,
                 key: std::env::var(key_env).unwrap_or_else(|_| {
                     key_env
