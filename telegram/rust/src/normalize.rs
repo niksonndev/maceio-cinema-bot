@@ -253,9 +253,35 @@ pub fn denormalize(
 mod tests {
     use super::{denormalize, extract_sessions};
     use crate::types::{
-        IngressoRawSession, IngressoSessionGroup, IngressoSessionType, MovieStatic,
+        IngressoDateEntry, IngressoRawSession, IngressoSessionGroup, IngressoSessionType,
+        MovieStatic,
     };
     use std::collections::HashMap;
+
+    #[test]
+    fn normalizes_api_movies_with_string_ids() {
+        let entry: IngressoDateEntry = serde_json::from_value(serde_json::json!({
+            "date": "2026-09-29",
+            "movies": [{
+                "id": "28844",
+                "title": "Precisamos Falar",
+                "sessionTypes": [{
+                    "sessions": [{
+                        "id": "87112724",
+                        "time": "20:00",
+                        "price": 27.36
+                    }]
+                }]
+            }]
+        }))
+        .unwrap();
+
+        let normalized = super::normalize_sessions_response(Some(&entry));
+
+        assert!(normalized.movies.contains_key("28844"));
+        assert_eq!(normalized.sessions.len(), 1);
+        assert_eq!(normalized.sessions[0].movie_id, 28844);
+    }
 
     #[test]
     fn extracts_format_audio_and_checkout_url() {

@@ -187,6 +187,7 @@ pub struct IngressoSessionGroup {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IngressoRawMovie {
+    #[serde(deserialize_with = "deserialize_ingresso_id")]
     pub id: i64,
     pub title: String,
     #[serde(default)]
@@ -223,6 +224,23 @@ pub struct IngressoRawMovie {
     pub site_url_by_theater: Option<String>,
     #[serde(default, rename = "siteURL")]
     pub site_url: Option<String>,
+}
+
+fn deserialize_ingresso_id<'de, D>(deserializer: D) -> std::result::Result<i64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Id {
+        Number(i64),
+        String(String),
+    }
+
+    match Id::deserialize(deserializer)? {
+        Id::Number(id) => Ok(id),
+        Id::String(id) => id.parse().map_err(serde::de::Error::custom),
+    }
 }
 
 #[derive(Debug, Deserialize)]
