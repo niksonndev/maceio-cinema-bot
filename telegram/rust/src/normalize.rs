@@ -209,6 +209,7 @@ pub fn normalize_upcoming_from_sessions(
     today_movie_ids: &HashSet<i64>,
 ) -> Vec<UpcomingItem> {
     let mut seen: HashMap<String, UpcomingItem> = HashMap::new();
+    let mut order: Vec<String> = Vec::new();
 
     for date_entry in future_dates {
         for raw in date_entry.movies.as_deref().unwrap_or_default() {
@@ -267,6 +268,7 @@ pub fn normalize_upcoming_from_sessions(
                     min_price = Some(min_price.map_or(price, |current| current.min(price)));
                 }
             }
+            order.push(key.clone());
             seen.insert(
                 key,
                 UpcomingItem {
@@ -295,7 +297,10 @@ pub fn normalize_upcoming_from_sessions(
         }
     }
 
-    seen.into_values().collect()
+    order
+        .into_iter()
+        .filter_map(|key| seen.remove(&key))
+        .collect()
 }
 
 pub fn denormalize(
@@ -303,9 +308,12 @@ pub fn denormalize(
     sessions: &[Session],
 ) -> Vec<DenormalizedMovie> {
     let mut grouped: HashMap<i64, DenormalizedMovie> = HashMap::new();
+    let mut order: Vec<i64> = Vec::new();
+
     for session in sessions {
-        if let std::collections::hash_map::Entry::Vacant(entry) = grouped.entry(session.movie_id) {
-            let Some(movie) = movies.get(&session.movie_id.to_string()) else {
+        let movie_id = session.movie_id;
+        if let std::collections::hash_map::Entry::Vacant(entry) = grouped.entry(movie_id) {
+            let Some(movie) = movies.get(&movie_id.to_string()) else {
                 continue;
             };
             entry.insert(DenormalizedMovie {
@@ -313,8 +321,9 @@ pub fn denormalize(
                 movie: movie.clone(),
                 sessions: Vec::new(),
             });
+            order.push(movie_id);
         }
-        if let Some(movie) = grouped.get_mut(&session.movie_id) {
+        if let Some(movie) = grouped.get_mut(&movie_id) {
             movie.sessions.push(DenormalizedSession {
                 time: session.time.clone(),
                 session_id: session.id.clone(),
@@ -329,7 +338,11 @@ pub fn denormalize(
             });
         }
     }
-    grouped.into_values().collect()
+
+    order
+        .into_iter()
+        .filter_map(|movie_id| grouped.remove(&movie_id))
+        .collect()
 }
 
 #[cfg(test)]
@@ -485,6 +498,89 @@ mod tests {
 
         assert_eq!(upcoming.len(), 1);
         assert_eq!(upcoming[0].title, "Vingadores: Ultimato");
+    }
+
+    #[test]
+    fn denormalizes_movies_in_session_order() {
+        let movies = HashMap::from([
+            (
+                "1".into(),
+                MovieStatic {
+                    id: 1,
+                    title: "A".into(),
+                    ..MovieStatic::default()
+                },
+            ),
+            (
+                "2".into(),
+                MovieStatic {
+                    id: 2,
+                    title: "B".into(),
+                    ..MovieStatic::default()
+                },
+            ),
+            (
+                "5".into(),
+                MovieStatic {
+                    id: 5,
+                    title: "E".into(),
+                    ..MovieStatic::default()
+                },
+            ),
+            (
+                "7".into(),
+                MovieStatic {
+                    id: 7,
+                    title: "G".into(),
+                    ..MovieStatic::default()
+                },
+            ),
+            (
+                "9".into(),
+                MovieStatic {
+                    id: 9,
+                    title: "I".into(),
+                    ..MovieStatic::default()
+                },
+            ),
+        ]);
+        let sessions = [
+            crate::types::Session {
+                id: "s1".into(),
+                movie_id: 9,
+                ..crate::types::Session::default()
+            },
+            crate::types::Session {
+                id: "s2".into(),
+                movie_id: 2,
+                ..crate::types::Session::default()
+            },
+            crate::types::Session {
+                id: "s3".into(),
+                movie_id: 7,
+                ..crate::types::Session::default()
+            },
+            crate::types::Session {
+                id: "s4".into(),
+                movie_id: 1,
+                ..crate::types::Session::default()
+            },
+            crate::types::Session {
+                id: "s5".into(),
+                movie_id: 5,
+                ..crate::types::Session::default()
+            },
+        ];
+
+        let movies = denormalize(&movies, &sessions);
+
+        assert_eq!(
+            movies
+                .iter()
+                .map(|movie| movie.movie.id)
+                .collect::<Vec<_>>(),
+            vec![9, 2, 7, 1, 5]
+        );
     }
 
     #[test]
