@@ -205,7 +205,11 @@ impl NormalizedCache {
 
     pub fn get_sessions(&self, date: &str, theater_id: &str) -> Option<SessionDayCache> {
         let cached = self.data.sessions.get(theater_id)?.get(date)?;
-        (iso_to_maceio_date(&cached.fetched_at) == maceio_date(0)).then(|| cached.clone())
+        let fetched_day = iso_to_maceio_date(&cached.fetched_at);
+        let today = maceio_date(0);
+        let is_valid = (date == today && fetched_day == today)
+            || (date > today.as_str() && fetched_day == today);
+        is_valid.then(|| cached.clone())
     }
 
     pub fn set_upcoming(&mut self, items: Vec<UpcomingItem>, fetched_at: String, theater_id: &str) {
@@ -218,5 +222,49 @@ impl NormalizedCache {
     pub fn get_upcoming(&self, theater_id: &str) -> Option<UpcomingCache> {
         let cached = self.data.upcoming.get(theater_id)?;
         (iso_to_maceio_date(&cached.fetched_at) == maceio_date(0)).then(|| cached.clone())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Backend, JsonStore, NormalizedCache};
+    use crate::types::{CacheData, Session, SessionDayCache};
+    use std::path::PathBuf;
+
+    #[test]
+    fn keeps_future_day_sessions_valid_when_fetched_today() {
+        let tomorrow = crate::types::maceio_date(1);
+        let cache = NormalizedCache {
+            data: CacheData {
+                sessions: [(
+                    "1162".to_string(),
+                    [(
+                        tomorrow.clone(),
+                        SessionDayCache {
+                            fetched_at: crate::types::now_rfc3339(),
+                            items: vec![Session {
+                                id: "session-1".into(),
+                                movie_id: 42,
+                                time: "20:00".into(),
+                                ..Session::default()
+                            }],
+                        },
+                    )]
+                    .into_iter()
+                    .collect(),
+                )]
+                .into_iter()
+                .collect(),
+                ..CacheData::default()
+            },
+            store: JsonStore {
+                backend: Backend::Local(PathBuf::new()),
+            },
+            dirty: false,
+        };
+
+        let cached = cache.get_sessions(&tomorrow, "1162");
+        assert!(cached.is_some());
+        assert_eq!(cached.unwrap().items[0].movie_id, 42);
     }
 }
