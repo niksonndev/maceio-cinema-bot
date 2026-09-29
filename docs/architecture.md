@@ -7,11 +7,11 @@
 Two apps share the same Ingresso.com domain (Maceió, city `53`) but not runtime code.
 
 ```
-Telegram users ──POST /webhook──► API Gateway ──► Lambda (telegram/dist/lambda.handler)
+Telegram users ──POST /webhook──► API Gateway ──► Rust Lambda (teloxide, one update/invoke)
                                                       ├─► cache + prefs (S3)
                                                       └─► Ingresso.com
 
-EventBridge (03:00 UTC) ──► Lambda fetchHandler ──► S3 cache + setWebHook
+EventBridge (03:00 UTC) ──► Rust warm Lambda ──► S3 cache + setWebhook + commands
 
 WhatsApp users ──► whatsapp-rust session (Render)
                       ├─► in-memory schedule cache + prefs
@@ -21,31 +21,25 @@ WhatsApp users ──► whatsapp-rust session (Render)
 
 ## Telegram (`telegram/`)
 
-TypeScript (Node.js, ES Modules). Production: AWS SAM. Local: polling + Express.
+Rust (`teloxide` + `lambda_http`). Production: AWS SAM custom runtime `provided.al2023`; each API Gateway request processes one Telegram update and awaits its Bot API calls before returning HTTP 200. Local: explicit `telegram-poll` binary + Axum health endpoint.
 
-JSON cache (`data/cache.json` or S3) and prefs (`data/prefs.json` / S3). Ratings: in-memory Map (24h TTL).
+JSON cache (`data/cache.json` or S3) and prefs (`data/prefs.json` / S3). Ratings: in-memory cache (24h TTL).
 
-BotFunction reloads cache and prefs from S3 on **every** invoke and **awaits** `handleUpdate()` before HTTP 200.
+`BotFunction` reloads cache and prefs from S3 on **every** invoke and awaits `handle_update()` before HTTP 200. `FetchFunction` is invoked by EventBridge and also registers the webhook and bot commands.
 
-Do not run local polling with the same token while the production webhook is active.
+Local polling checks `getWebhookInfo` and refuses to start if a webhook is active. Use a staging bot token for local polling.
 
-### Modules (`telegram/src/`)
+### Modules (`telegram/rust/src/`)
 
 | Module | Responsibility |
 | --- | --- |
-| `api.ts` | Ingresso.com HTTP client |
-| `normalize.ts` | Static movies vs dynamic sessions; `denormalize()` |
-| `cache.ts` | File or S3 persistence |
-| `data.ts` | Cache-aside orchestration |
-| `cinemas.ts` | 3 theaters + persisted prefs |
-| `format.ts` | Telegram Markdown cards |
-| `ratings.ts` | OMDb / TMDb (24h) |
-| `keyboards.ts` | Inline keyboards |
-| `handlers.ts` | Commands + carousel callbacks |
-| `bot.ts` | Local polling |
-| `lambda.ts` | Webhook + daily warm |
-| `index.ts` | CLI |
-| `types.ts` | Domain types |
+| `api.rs` / `normalize.rs` | Ingresso.com client, normalization and denormalization |
+| `store.rs` / `prefs.rs` | Local JSON or S3 cache and saved cinema preferences |
+| `data.rs` / `types.rs` | Cache-aside orchestration and persisted data model |
+| `format.rs` / `ratings.rs` | Telegram Markdown cards and OMDb/TMDb (24h) |
+| `keyboards.rs` / `handlers.rs` | Inline keyboards, commands and carousel callbacks |
+| `main.rs` / `fetch.rs` | Webhook Lambda and daily warm Lambda |
+| `polling.rs` | Local polling + health endpoint; rejects active webhooks |
 
 ## WhatsApp (`whatsapp/`)
 
@@ -97,8 +91,8 @@ handlers
 
 | Where | Command | Purpose |
 | --- | --- | --- |
-| `telegram/` | `npm start` | CLI pipeline (no token) |
-| `telegram/` | `npm run bot:listen` | Local Telegram polling |
-| `telegram/` | `npm test` / `sam:build` / `sam:deploy` / `sam:warm` | Tests and SAM |
+| `telegram/` | `cargo test --manifest-path rust/Cargo.toml` | Rust tests |
+| `telegram/` | `cargo run --manifest-path rust/Cargo.toml --bin telegram-poll` | Local Telegram polling |
+| `telegram/` | `sam build` / `sam deploy` / `bash scripts/sam-warm.sh` | SAM build and deploy |
 | `whatsapp/` | `cargo run` | WhatsApp bot + health |
 | `whatsapp/` | `cargo test` | Unit tests |

@@ -4,7 +4,7 @@
 
 ## 1. Persistent cache — `data/cache.json`
 
-Managed by the `NormalizedCache` class (`telegram/src/cache.ts`). Persisted to disk
+Managed by `NormalizedCache` (`telegram/rust/src/store.rs`). Persisted to disk
 (local) or S3 (production), along with `prefs.json`.
 
 ```jsonc
@@ -82,21 +82,21 @@ Managed by the `NormalizedCache` class (`telegram/src/cache.ts`). Persisted to d
 
 #### `MovieStatic` (static data — rarely changes)
 
-Extracted by `extractMovieStatic()` in `telegram/src/normalize.ts`. Identical regardless of date/cinema.
+Extracted by `extract_movie_static()` in `telegram/rust/src/normalize.rs`. Identical regardless of date/cinema.
 
 #### `Session` (dynamic data — changes by day/time)
 
-Extracted by `extractSessions()` in `telegram/src/normalize.ts`. Each session has only the data relevant to the queried date/theater.
+Extracted by `extract_sessions()` in `telegram/rust/src/normalize.rs`. Each session has only the data relevant to the queried date/theater.
 
 #### `UpcomingItem` (future releases)
 
-Extracted by `normalizeUpcomingFromSessions()`. Identifies movies that are **not yet showing today** and have active pre-sale.
+Extracted by `normalize_upcoming_from_sessions()`. Identifies movies that are **not yet showing today** and have active pre-sale.
 
 ---
 
 ## 2. Display structure (denormalized)
 
-Produced by `denormalize(movies, sessions)` in `telegram/src/normalize.ts`. This is the format consumed by the formatting layer (`format.ts`).
+Produced by `denormalize(movies, sessions)` in `telegram/rust/src/normalize.rs`. This is the format consumed by the formatting layer (`format.rs`).
 
 ```js
 {
@@ -131,7 +131,7 @@ Produced by `denormalize(movies, sessions)` in `telegram/src/normalize.ts`. This
 
 ## 3. Ratings (in-memory)
 
-Temporary structure held in `telegram/src/ratings.ts`:
+Temporary structure held in `telegram/rust/src/ratings.rs`:
 
 ```js
 // memoryCache: Map<string, { at: number, data: RatingsResult | null }>
@@ -151,7 +151,7 @@ RatingsResult = {
 
 ## 4. User preferences (persisted)
 
-Managed in `telegram/src/cinemas.ts`. Same dual backend as the cache:
+Managed in `telegram/rust/src/prefs.rs`. Same dual backend as the cache:
 
 - Local: `data/prefs.json`
 - Production / S3 tests: object `PREFS_KEY` (default `prefs.json`)
@@ -163,8 +163,8 @@ Managed in `telegram/src/cinemas.ts`. Same dual backend as the cache:
 }
 ```
 
-Keys are always `String(chatId)`. `setUserCinema` is write-through; BotFunction
-calls `loadPrefs()` at the start of **every** invoke so the choice is shared across
+Keys are always `String(chatId)`. `set_user_cinema` is write-through; BotFunction
+reloads preferences from S3 at the start of **every** invoke so the choice is shared across
 Lambda instances.
 
 ---
@@ -174,7 +174,7 @@ Lambda instances.
 | Variable            | Required    | Default   | Description                                  |
 | ------------------- | ----------- | --------- | -------------------------------------------- |
 | `TELEGRAM_BOT_TOKEN` | Yes        | —         | Bot token (via @BotFather).                 |
-| `PORT`              | No          | `10000`   | Express port (health check, local polling). |
+| `PORT`              | No          | `10000`   | Axum health endpoint port (local polling). |
 | `OMDb_API_KEY`      | No          | —         | IMDb/RT lookup.                              |
 | `TMDB_API_KEY`      | No          | —         | TMDb fallback when OMDb fails.              |
 | `S3_BUCKET`         | No*         | —         | Cache and prefs bucket (*SAM in production). |

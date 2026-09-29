@@ -5,7 +5,7 @@
 ## Base configuration
 
 ```ts
-// telegram/src/api.ts (WhatsApp: whatsapp/src/ingresso.rs)
+// telegram/rust/src/api.rs (WhatsApp: whatsapp/src/ingresso.rs)
 const BASE_URL = 'https://api-content.ingresso.com';
 const CITY_ID = 53;  // Maceió
 const DEFAULT_THEATER_ID = '1162';  // Cinesystem
@@ -46,49 +46,49 @@ Returns all sessions for a cinema — for all dates (past, today, and future).
 
 **Consumed by:** `fetchUpcoming()` → identifies future pre-sale releases.
 
-## Exported functions (`telegram/src/api.ts`)
+## API functions (`telegram/rust/src/api.rs`)
 
-### `fetchNormalized(date = null, theaterId = 1162)`
+### `fetch_normalized(date = None, theater_id = "1162")`
 
 - Resolves the target date: uses `date` if provided, otherwise the current date in the `America/Maceio` timezone.
 - Requests endpoint 1.
 - Returns normalized data:
   ```ts
   {
-    movies: Record<string, MovieStatic>,
-    sessions: Session[],
-    date: string,          // YYYY-MM-DD
-    fetchedAt: string      // ISO timestamp
+    movies: HashMap<String, MovieStatic>,
+    sessions: Vec<Session>,
+    date: Option<String>,  // YYYY-MM-DD
+    fetched_at: String     // ISO timestamp
   }
   ```
 
-### `fetchUpcoming(theaterId = 1162)`
+### `fetch_upcoming(theater_id = "1162")`
 
 - Fetches all dates from endpoint 2.
 - Filters movies **not currently showing today** (`todayMovieIds`).
 - Keeps only those in **pre-sale** (`inPreSale === true`).
 - Returns:
   ```ts
-  { items: UpcomingItem[], fetchedAt: string }
+  (Vec<UpcomingItem>, String) // items and fetched_at
   ```
 
 ---
 
-## Normalization functions (`telegram/src/normalize.ts`)
+## Normalization functions (`telegram/rust/src/normalize.rs`)
 
-### `extractMovieStatic(raw)` → `MovieStatic`
+### `extract_movie_static(raw)` → `MovieStatic`
 Extracts static (immutable) data from a raw API movie.
 
-### `extractSessions(movieId, sessionTypes)` → `Session[]`
+### `extract_sessions(movie_id, session_types)` → `Vec<Session>`
 Extracts dynamic sessions (time, price, room, format, audio) from a movie.
 
-### `normalizeSessionsResponse(apiResponse)`
+### `normalize_sessions_response(api_response)`
 Normalizes the full endpoint-1 response into `{ movies, sessions, date, fetchedAt }`.
 
-### `normalizeUpcomingFromSessions(futureDates, todayMovieIds)` → `UpcomingItem[]`
+### `normalize_upcoming_from_sessions(future_dates, today_movie_ids)` → `Vec<UpcomingItem>`
 Identifies new releases from future dates, excluding movies already showing today.
 
-### `denormalize(movies, sessions)` → `DisplayMovie[]`
+### `denormalize(movies, sessions)` → `Vec<DenormalizedMovie>`
 Rebuilds the display view: joins static data + sessions into an array ready for the UI.
 
 ---
@@ -103,6 +103,5 @@ Rebuilds the display view: joins static data + sessions into an array ready for 
 
 ## Date utils (`America/Maceio` timezone)
 
-- `getMaceioDate(offsetDays = 0)` → `YYYY-MM-DD` for the current day in Maceió (with offset).
-- `toMaceioDateStr(isoString)` → converts any ISO string to `YYYY-MM-DD` in Maceió.
-- `getTodayInMaceioISO()` (in `api.ts`) → today's date in `en-CA` format (YYYY-MM-DD).
+- `maceio_date(days_offset)` → `YYYY-MM-DD` for the current day in Maceió (with offset).
+- `iso_to_maceio_date(iso)` → converts an ISO timestamp to `YYYY-MM-DD` in Maceió.

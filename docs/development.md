@@ -8,22 +8,18 @@
 
 | Tool | Version / notes |
 | --- | --- |
-| TypeScript | ^5 (compiles to `dist/` for SAM) |
-| Node.js | >= 20 (22 in test Docker / Lambda) |
-| npm | >= 10 |
-| Docker | **Required for `npm test`** and for `sam local invoke` |
-| AWS SAM CLI | For `sam validate` / `sam build` / deploy / `sam:local` |
-| AWS CLI | For deploy and `sam:warm` |
+| Rust | Stable toolchain; teloxide requires Rust 1.82+ |
+| Cargo Lambda | Builds Linux Lambda `bootstrap` artifacts and installs Zig |
+| Rustfmt / Clippy | Installed via rustup components |
+| Docker | Required for `sam local invoke` |
+| AWS SAM CLI | For `sam validate` / `sam build` / deploy |
+| AWS CLI | For deploy and `scripts/sam-warm.sh` |
 
 ### Clone and install
 
 ```bash
 git clone https://github.com/seu-usuario/maceio-cinema-bot.git
 cd maceio-cinema-bot/telegram
-
-npm install
-# or, for a deterministic install:
-npm ci
 ```
 
 ### Configure environment variables
@@ -44,59 +40,47 @@ TMDB_API_KEY=your_tmdb_key                # optional (TMDb fallback)
 # PREFS_KEY=prefs.json
 ```
 
-> Only `TELEGRAM_BOT_TOKEN` is required for `npm run bot:listen`.
-> The CLI (`npm start`) works **with no tokens**.
+`TELEGRAM_BOT_TOKEN` is required for polling. `OMDb_API_KEY` and `TMDB_API_KEY` are optional.
 
 ### Scripts
 
-Run from `telegram/`. See [`AGENTS.md`](../AGENTS.md) for the full table (`start`, `bot:listen`, `build`, `test`, `lint`, `sam:*`).
+Run Cargo commands from the repository root or pass `--manifest-path` as below.
 
-### Validate the pipeline without Telegram
-
-```bash
-cd telegram
-npm start
-```
-
-This runs `src/index.ts` (today, Cinesystem `1162`). No tokens.
-
-### Tests (Docker)
+### Rust tests
 
 ```bash
-cd telegram
-npm test
+cargo fmt --manifest-path telegram/rust/Cargo.toml --check
+cargo clippy --manifest-path telegram/rust/Cargo.toml --all-targets -- -D warnings
+cargo test --manifest-path telegram/rust/Cargo.toml --locked
 ```
 
 ### Run the bot (local polling)
 
 ```bash
-cd telegram
-npm run bot:listen
+cargo run --manifest-path telegram/rust/Cargo.toml --bin telegram-poll
 ```
 
-Health check: `http://localhost:10000/`. **Do not** use the same token while a production webhook is active.
+Health check: `http://localhost:10000/`. Polling refuses to start if the token has an active webhook; use a staging token.
 
 ### SAM local (optional)
 
 ```bash
 cd telegram
-sam validate
-npm run sam:build
-npm run sam:local
+sam validate --template-file template.yaml
+sam build --template-file template.yaml
+sam local start-api --template-file .aws-sam/build/template.yaml
 ```
 
 ### Directory structure (Telegram)
 
 ```
 telegram/
-├── src/          # TypeScript bot
-├── test/
+├── rust/         # Rust/teloxide application and SAM Makefile
 ├── events/
 ├── scripts/
 ├── template.yaml
 ├── samconfig.toml
-├── docker-compose.test.yml
-└── package.json
+└── .env.example
 ```
 
 ---
@@ -136,7 +120,7 @@ docker run --rm -p 10000:10000 -e PORT=10000 maceio-wa
 
 ```
 maceio-cinema-bot/
-├── telegram/               # Node + SAM
+├── telegram/               # Rust/teloxide + SAM
 ├── whatsapp/               # Rust + Dockerfile
 ├── render.yaml
 ├── docs/

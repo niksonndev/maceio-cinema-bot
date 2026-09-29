@@ -10,17 +10,18 @@
 | Item | Detail |
 |---|---|
 | IaC | AWS SAM (`telegram/template.yaml`) |
-| Runtime | AWS Lambda (Node.js 22.x) |
+| Runtime | AWS Lambda custom runtime (`provided.al2023`, Rust) |
 | HTTP | Amazon API Gateway — HTTP API (`POST /webhook`) |
 | Schedule | Amazon EventBridge (`cron(0 3 * * ? *)` — midnight Maceió) |
 | Cache | Amazon S3 (`cache.json` + `prefs.json`) |
-| Handlers | `dist/lambda.handler`, `dist/lambda.fetchHandler` |
-| npm scripts | `sam:build` (`tsc` + `sam build`), `sam:deploy`, `sam:warm`, `sam:local` |
+| Binaries | `telegram-webhook` and `telegram-fetch`, each packaged as `bootstrap` |
+| Build | Cargo Lambda via `telegram/rust/Makefile` |
 
 ### Prerequisites
 
 - AWS CLI configured (`aws configure` → `aws sts get-caller-identity`)
 - [SAM CLI](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam_cli.html) installed
+- Rust stable, Cargo Lambda, and Zig installed (Cargo Lambda's official installer can install both)
 - IAM with permission to create Lambda, API Gateway, S3, EventBridge, IAM roles (`CAPABILITY_IAM`)
 - `TELEGRAM_BOT_TOKEN` (and optionally OMDb/TMDb)
 
@@ -30,15 +31,15 @@ Working directory: **`telegram/`**.
 
 ```bash
 cd telegram
-sam validate
-npm run sam:build   # tsc → dist/ then sam build
+sam validate --template-file template.yaml
+sam build --template-file template.yaml
 ```
 
 ### 2. Deploy (first time — guided mode)
 
 ```bash
 cd telegram
-sam deploy --guided   # or: npm run sam:deploy (without --guided)
+sam deploy --guided
 ```
 
 | Prompt | Suggested |
@@ -54,7 +55,7 @@ The `WebhookUrl` output and the **FetchFunction** `WEBHOOK_URL` env use
 We do not put `WEBHOOK_URL` on BotFunction: referencing `HttpApi` on the same
 function that integrates with it creates a circular dependency in CloudFormation.
 
-FetchFunction calls `bot.setWebHook()` (daily cron or `npm run sam:warm`).
+FetchFunction calls `setWebhook` and `setMyCommands` (daily cron or `bash scripts/sam-warm.sh`).
 The URL only changes if the stack (or `HttpApi`) is recreated.
 
 ### 3. Register / verify the webhook on Telegram
@@ -64,7 +65,7 @@ After deploy, invoke FetchFunction once (cache warm + `setWebHook`):
 ```bash
 cd telegram
 set -a && source .env && set +a
-npm run sam:warm
+bash scripts/sam-warm.sh
 
 curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo"
 ```
@@ -87,7 +88,7 @@ curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
 
 ```bash
 cd telegram
-npm run sam:build && sam deploy
+sam build --template-file template.yaml && sam deploy
 ```
 
 ### 5. Local SAM development / testing
@@ -96,8 +97,9 @@ Requires Docker (SAM Lambda images):
 
 ```bash
 cd telegram
-npm test              # Vitest in Docker Compose + LocalStack
-npm run sam:local     # sam build + invoke per event in events/
+cd rust && cargo test --locked
+cd ..
+sam build --template-file template.yaml
 sam local start-api
 ```
 
@@ -117,8 +119,8 @@ region = "sa-east-1"
 
 [`.github/workflows/ci-cd.yml`](../.github/workflows/ci-cd.yml):
 
-- **Pull request to `main`:** Telegram lint/typecheck/test (cwd `telegram/`) and WhatsApp `cargo test` / `cargo build --release` (cwd `whatsapp/`).
-- **Push to `main`:** the same checks, then `sam deploy` from `telegram/` and `sam:warm`.
+- **Pull request to `main`:** Telegram `cargo fmt` / Clippy / tests and SAM build; WhatsApp `cargo test` / `cargo build --release`.
+- **Push to `main`:** the same checks, then `sam deploy` from `telegram/` and `sam-warm.sh`.
 
 AWS auth is via **OIDC** (`aws-actions/configure-aws-credentials`).
 
@@ -133,7 +135,7 @@ AWS auth is via **OIDC** (`aws-actions/configure-aws-credentials`).
 
 The role must trust the OIDC provider `token.actions.githubusercontent.com`, restricted to this repository and `ref:refs/heads/main`.
 
-Manual deploys (`npm run sam:deploy` from `telegram/`) remain valid. The workflow passes `--no-confirm-changeset --no-fail-on-empty-changeset`.
+Manual deploys (`sam deploy` from `telegram/`) remain valid. The workflow passes `--no-confirm-changeset --no-fail-on-empty-changeset`.
 
 ### `telegram/template.yaml` resources
 

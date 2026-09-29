@@ -18,16 +18,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: telegram/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
 
-      - run: npm ci
-      - run: npm run lint
-      - run: npm run typecheck
-      - run: npm test
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: telegram/rust
+
+      - name: Install Cargo Lambda
+        run: |
+          NPM_CONFIG_PREFIX="$HOME/.local" sh -c "$(curl -fsSL https://cargo-lambda.info/install.sh)"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - run: cargo fmt --manifest-path rust/Cargo.toml --check
+      - run: cargo clippy --manifest-path rust/Cargo.toml --all-targets -- -D warnings
+      - run: cargo test --manifest-path rust/Cargo.toml --locked
+
+      - uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
+
+      - run: sam validate --template-file template.yaml
+      - run: sam build --template-file template.yaml
 
   whatsapp:
     runs-on: ubuntu-latest
@@ -62,13 +73,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: telegram/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
 
-      - run: npm ci
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: telegram/rust
+
+      - name: Install Cargo Lambda
+        run: |
+          NPM_CONFIG_PREFIX="$HOME/.local" sh -c "$(curl -fsSL https://cargo-lambda.info/install.sh)"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - uses: aws-actions/setup-sam@v2
         with:
@@ -81,8 +95,7 @@ jobs:
 
       - name: Build and deploy
         run: |
-          npm run build
-          sam build
+          sam build --template-file template.yaml
           sam deploy \
             --no-confirm-changeset \
             --no-fail-on-empty-changeset \

@@ -17,11 +17,11 @@ This repo is a **monorepo**:
 
 | Channel | Detail |
 | --- | --- |
-| Telegram | **AWS SAM** — webhook → API Gateway `POST /webhook` → `telegram/dist/lambda.handler`. Cache in S3. Daily EventBridge warm. |
+| Telegram | **Rust + teloxide** on AWS SAM (`provided.al2023`) — webhook → API Gateway `POST /webhook` → Lambda. Cache in S3; EventBridge warms daily. |
 | WhatsApp | **Render Free** — always-on-ish Docker service (`render.yaml`). Health `GET /`. Keep-alive via `RENDER_EXTERNAL_URL`. |
 | Guides | [`docs/deployment.md`](docs/deployment.md) |
 
-Local Telegram polling (`cd telegram && npm run bot:listen`) is for development only.
+Local Telegram polling (`cargo run --manifest-path telegram/rust/Cargo.toml --bin telegram-poll`) is for development only. It refuses to start if that token already has a webhook configured.
 
 ---
 
@@ -52,23 +52,22 @@ WhatsApp uses text commands (`hoje`, `proximos`, `cinemas`) instead of Telegram 
 
 ## Getting started
 
-### Telegram (TypeScript)
+### Telegram (Rust)
 
 ```bash
 cd telegram
-npm install
 cp .env.example .env   # set TELEGRAM_BOT_TOKEN
-npm start              # pipeline check, no token
-npm run bot:listen     # local polling
-npm test
+cargo test --manifest-path rust/Cargo.toml
+cargo run --manifest-path rust/Cargo.toml --bin telegram-poll
 ```
 
 SAM (from `telegram/`):
 
 ```bash
-npm run sam:build
+sam validate --template-file template.yaml
+sam build --template-file template.yaml
 sam deploy
-npm run sam:warm
+bash scripts/sam-warm.sh
 ```
 
 ### WhatsApp (Rust)
@@ -86,7 +85,7 @@ Scan the QR: WhatsApp → Settings → Linked devices. Render deploy uses [`rend
 
 ## Architecture
 
-See [`docs/architecture.md`](docs/architecture.md). Telegram modules live under `telegram/src/`; WhatsApp ports the same Ingresso pipeline in `whatsapp/src/`.
+See [`docs/architecture.md`](docs/architecture.md). Telegram Rust modules live under `telegram/rust/src/`; WhatsApp remains an independent Rust app under `whatsapp/`.
 
 ---
 

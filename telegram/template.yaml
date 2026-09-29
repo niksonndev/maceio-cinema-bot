@@ -4,12 +4,11 @@ Description: Maceio Cine Bot — Telegram webhook (API Gateway + Lambda) + Event
 
 Globals:
   Function:
-    Runtime: nodejs22.x
+    Runtime: provided.al2023
     Timeout: 30
     MemorySize: 256
-    Environment:
-      Variables:
-        NODE_ENV: production
+    Architectures:
+      - x86_64
 
 Parameters:
   TelegramBotToken:
@@ -53,11 +52,10 @@ Resources:
   BotFunction:
     Type: AWS::Serverless::Function
     Metadata:
-      BuildProperties:
-        UseNpmCi: true
+      BuildMethod: makefile
     Properties:
-      CodeUri: .
-      Handler: dist/lambda.handler
+      CodeUri: rust
+      Handler: bootstrap
       Environment:
         Variables:
           TELEGRAM_BOT_TOKEN: !Ref TelegramBotToken
@@ -87,11 +85,10 @@ Resources:
   FetchFunction:
     Type: AWS::Serverless::Function
     Metadata:
-      BuildProperties:
-        UseNpmCi: true
+      BuildMethod: makefile
     Properties:
-      CodeUri: .
-      Handler: dist/lambda.fetchHandler
+      CodeUri: rust
+      Handler: bootstrap
       Timeout: 120
       Environment:
         Variables:

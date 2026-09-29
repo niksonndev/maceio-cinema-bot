@@ -7,11 +7,11 @@
 
 | Environment | Where | How |
 | ----------- | ----- | --- |
-| Local (`cd telegram && npm start` / `bot:listen`) | `data/cache.json` + `data/prefs.json` | File on disk |
+| Local (`telegram-poll`) | `data/cache.json` + `data/prefs.json` | File on disk |
 | Production (SAM / Lambda) | S3 | Objects `CACHE_KEY` (`cache.json`) and `PREFS_KEY` (`prefs.json`) in bucket `S3_BUCKET` |
-| Tests (`npm test`) | LocalStack S3 | Same production code; `AWS_ENDPOINT_URL` points at the container |
+| Local S3 testing | LocalStack | `AWS_ENDPOINT_URL` points at the custom endpoint |
 
-Choice is automatic in `telegram/src/cache.ts` / `telegram/src/cinemas.ts`: if `process.env.S3_BUCKET` is
+Choice is automatic in `telegram/rust/src/store.rs` / `telegram/rust/src/prefs.rs`: if `S3_BUCKET` is
 set, uses the AWS SDK (`GetObject` / `PutObject`); otherwise uses the local file.
 `AWS_ENDPOINT_URL` (with `forcePathStyle`) enables LocalStack without forking the code.
 
@@ -45,21 +45,17 @@ prefs.json
 
 ### Sessions and upcoming — daily expiration
 
-Implemented in `telegram/src/cache.ts`:
+Implemented in `telegram/rust/src/store.rs`:
 
 - `getSessions(date, theaterId)` → compares `fetchedAt` with the current day in `America/Maceio`. If the day differs, **deletes the entry** and returns `null` (cache miss → forces a new request).
 - `getUpcoming(theaterId)` → same logic.
 - `purgeOldSessions()` → removes all sessions with `date < today` (called after `setSessions`).
 
-```js
-// cache.js — simplified excerpt
-const cachedDay = this.toMaceioDateStr(cached.fetchedAt); // convert to YYYY-MM-DD in Maceió
-const today = this.getMaceioDate(0);                      // today in Maceió
-if (cachedDay !== today) {
-  delete theaterSessions[date];
-  return null; // expired
+```rust
+if iso_to_maceio_date(&cached.fetched_at) != maceio_date(0) {
+    return None;
 }
-return cached;  // valid
+Some(cached.clone())
 ```
 
 ### Static movies — on-demand update
@@ -69,26 +65,15 @@ return cached;  // valid
 
 ## Cache hit/miss logic
 
-Implemented in `telegram/src/data.ts`:
+Implemented in `telegram/rust/src/data.rs`:
 
-```js
-// getMoviesForDate()
-const cached = cache.getSessions(targetDate, theaterId);
-if (cached) {
-  // ✅ CACHE HIT — no API request
-  return { movies: denormalize(...), fromCache: true };
-}
-// ❌ CACHE MISS — fetch + normalize + save
-const normalized = await fetchNormalized(date, theaterId);
-cache.mergeMovies(normalized.movies);
-await cache.setSessions(normalized.date, normalized.sessions, normalized.fetchedAt, theaterId);
-```
+Cache hits return denormalized movies without writing S3. On a miss, the service fetches and normalizes Ingresso data, merges static movies, stores sessions, and saves the changed cache before replying.
 
 ## Daily warm (production)
 
-The `fetchHandler` Lambda (EventBridge, `cron(0 3 * * ? *)` = midnight in Maceió)
+The Rust `telegram-fetch` Lambda (EventBridge, `cron(0 3 * * ? *)` = midnight in Maceió)
 preloads sessions and upcoming for all 3 theaters and writes to S3, reducing cold-start
-fetch on user interactions. After deploy, run `npm run sam:warm` once
+fetch on user interactions. After deploy, run `bash scripts/sam-warm.sh` once
 to register the webhook and warm the cache (otherwise wait for the 03:00 UTC cron).
 
 ## 3-cinema strategy
@@ -99,10 +84,10 @@ its own daily expiration.
 
 ## Ratings cache (in-memory)
 
-```js
-// telegram/src/ratings.ts
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
-const memoryCache = new Map();             // key: "title|year" → { at, data }
+```rust
+// telegram/rust/src/ratings.rs
+const CACHE_TTL = Duration::from_secs(24 * 60 * 60);
+static CACHE: OnceLock<DashMap<String, CacheEntry>>;
 ```
 
 - Fetches IMDb/RT via OMDb; on failure, falls back to TMDb.
@@ -111,6 +96,6 @@ const memoryCache = new Map();             // key: "title|year" → { at, data }
 
 ## `data/` directory (local)
 
-- Created automatically (`fs.mkdirSync('data', { recursive: true })`) on the first local `save()`.
+- Created automatically when the Rust local store first saves.
 - Contains `cache.json` and `prefs.json`. On ephemeral containers (e.g. legacy Render) these files
   do not survive restarts — that is why production uses S3.
