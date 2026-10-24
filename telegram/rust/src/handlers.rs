@@ -493,27 +493,42 @@ async fn edit_card(
     markup: teloxide::types::InlineKeyboardMarkup,
     has_photo: bool,
 ) -> Result<()> {
-    if has_photo {
-        if let Some(photo) = photo {
-            let file = InputFile::memory(photo).file_name("poster.jpg");
-            let media = InputMedia::Photo(
-                InputMediaPhoto::new(file)
-                    .caption(text)
-                    .parse_mode(markdown_mode()),
-            );
-            bot.edit_message_media(chat_id, message_id, media)
-                .reply_markup(markup)
-                .await?;
-            return Ok(());
+    // Telegram cannot turn a text message into a photo (or the reverse).
+    if has_photo == photo.is_some() {
+        let result = match photo.as_deref() {
+            Some(bytes) => {
+                let file = InputFile::memory(bytes.to_vec()).file_name("poster.jpg");
+                let media = InputMedia::Photo(
+                    InputMediaPhoto::new(file)
+                        .caption(text)
+                        .parse_mode(markdown_mode()),
+                );
+                bot.edit_message_media(chat_id, message_id, media)
+                    .reply_markup(markup.clone())
+                    .await
+                    .map(|_| ())
+            }
+            None => bot
+                .edit_message_text(chat_id, message_id, text)
+                .parse_mode(markdown_mode())
+                .reply_markup(markup.clone())
+                .await
+                .map(|_| ()),
+        };
+
+        match result {
+            Ok(()) => return Ok(()),
+            Err(teloxide::RequestError::Api(teloxide::ApiError::MessageNotModified)) => {
+                return Ok(())
+            }
+            Err(error) => tracing::warn!(%error, "Edit failed; replacing the card"),
         }
     }
-    bot.edit_message_text(chat_id, message_id, text)
-        .parse_mode(markdown_mode())
-        .await?;
-    bot.edit_message_reply_markup(chat_id, message_id)
-        .reply_markup(markup)
-        .await?;
-    Ok(())
+
+    if let Err(error) = bot.delete_message(chat_id, message_id).await {
+        tracing::debug!(%error, "Could not delete the previous card");
+    }
+    send_card(bot, chat_id, text, photo, markup).await
 }
 
 fn parse_carousel_callback(data: &str) -> Option<(CarouselKind, usize)> {
