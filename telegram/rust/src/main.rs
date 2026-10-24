@@ -3,7 +3,6 @@ use maceio_cine_telegram::decode_update;
 use maceio_cine_telegram::handlers::handle_update;
 use maceio_cine_telegram::prefs::Preferences;
 use maceio_cine_telegram::store::NormalizedCache;
-use teloxide::Bot;
 
 async fn process(request: Request) -> Result<(), Error> {
     let update = match decode_update(request.body().as_ref()) {
@@ -14,10 +13,9 @@ async fn process(request: Request) -> Result<(), Error> {
         }
     };
     tracing::info!(update_id = update.id.0, "Received Telegram update");
-    let token = std::env::var("TELEGRAM_BOT_TOKEN")?;
-    let bot = Bot::new(token);
+    let bot = maceio_cine_telegram::bot()?;
     let (mut cache, mut prefs) = tokio::try_join!(NormalizedCache::load(), Preferences::load())?;
-    handle_update(&bot, update, &mut cache, &mut prefs).await?;
+    handle_update(bot, update, &mut cache, &mut prefs).await?;
     cache.save_if_dirty().await?;
     Ok(())
 }

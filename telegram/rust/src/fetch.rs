@@ -3,12 +3,11 @@ use maceio_cine_telegram::api::{fetch_normalized, fetch_upcoming};
 use maceio_cine_telegram::cinemas::CINEMAS;
 use maceio_cine_telegram::data::get_date_string;
 use maceio_cine_telegram::store::NormalizedCache;
-use teloxide::prelude::*;
+use teloxide::prelude::Requester;
 use teloxide::types::BotCommand;
 
 async fn handler(_: LambdaEvent<serde_json::Value>) -> Result<serde_json::Value, Error> {
-    let token = std::env::var("TELEGRAM_BOT_TOKEN")?;
-    let bot = Bot::new(token);
+    let bot = maceio_cine_telegram::bot()?;
     let mut cache = NormalizedCache::load().await?;
     let date = get_date_string(0);
     let mut updated_movies = 0;

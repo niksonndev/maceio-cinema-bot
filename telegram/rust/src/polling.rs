@@ -21,8 +21,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
-    let token = std::env::var("TELEGRAM_BOT_TOKEN")?;
-    let bot = Bot::new(token);
+    let bot = maceio_cine_telegram::bot()?;
     let webhook = bot.get_webhook_info().await?;
     if let Some(webhook_url) = webhook.url {
         return Err(std::io::Error::other(format!(
