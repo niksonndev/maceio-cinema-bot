@@ -217,8 +217,7 @@ impl NormalizedCache {
         if !self.dirty {
             return Ok(());
         }
-        let data =
-            serde_json::to_vec_pretty(&self.data).map_err(|error| Error::Msg(error.to_string()))?;
+        let data = serde_json::to_vec(&self.data).map_err(|error| Error::Msg(error.to_string()))?;
         self.store.save(data).await?;
         self.dirty = false;
         Ok(())
@@ -265,13 +264,11 @@ impl NormalizedCache {
         }
     }
 
-    pub fn get_sessions(&self, date: &str, theater_id: &str) -> Option<SessionDayCache> {
+    pub fn get_sessions(&self, date: &str, theater_id: &str) -> Option<&SessionDayCache> {
         let cached = self.data.sessions.get(theater_id)?.get(date)?;
         let fetched_day = iso_to_maceio_date(&cached.fetched_at);
         let today = maceio_date(0);
-        let is_valid = (date == today && fetched_day == today)
-            || (date > today.as_str() && fetched_day == today);
-        is_valid.then(|| cached.clone())
+        (date >= today.as_str() && fetched_day == today).then_some(cached)
     }
 
     pub fn set_upcoming(&mut self, items: Vec<UpcomingItem>, fetched_at: String, theater_id: &str) {

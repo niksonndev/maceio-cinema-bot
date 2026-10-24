@@ -21,15 +21,15 @@ pub async fn get_movies_for_date(
 
     let normalized = fetch_normalized(date, theater_id).await?;
     cache.merge_movies(&normalized.movies);
-    let date_key = normalized.date.clone().unwrap_or(target_date);
+    let date_key = normalized.date.unwrap_or(target_date);
+    let movies = denormalize(&cache.data.movies, &normalized.sessions);
     cache.set_sessions(
         &date_key,
-        normalized.sessions.clone(),
+        normalized.sessions,
         normalized.fetched_at,
         theater_id,
     );
     cache.save_if_dirty().await?;
-    let movies = denormalize(&cache.data.movies, &normalized.sessions);
     Ok((movies, date_key))
 }
 

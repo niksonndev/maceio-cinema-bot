@@ -30,8 +30,7 @@ impl Preferences {
 
     pub async fn set_user_cinema(&mut self, chat_id: i64, theater_id: &str) -> Result<()> {
         self.data.insert(chat_id.to_string(), theater_id.to_owned());
-        let data =
-            serde_json::to_vec_pretty(&self.data).map_err(|error| Error::Msg(error.to_string()))?;
+        let data = serde_json::to_vec(&self.data).map_err(|error| Error::Msg(error.to_string()))?;
         self.store.save(data).await
     }
 }
