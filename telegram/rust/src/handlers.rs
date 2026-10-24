@@ -79,13 +79,17 @@ pub async fn handle_update(
         tracing::error!(%error, "Failed to process Telegram update");
         if !matches!(&error, Error::Telegram(_)) {
             if let Some((chat_id, prefix)) = failure_target {
-                bot.send_message(chat_id, format!("{prefix}: {error}"))
-                    .await?;
-                return Ok(());
+                if let Err(send_error) = bot
+                    .send_message(chat_id, format!("{prefix}: {error}"))
+                    .await
+                {
+                    tracing::warn!(%send_error, "Failed to report error to user");
+                }
             }
         }
-        return Err(error);
     }
+    // Never bubble update failures up to the webhook: a non-2xx response makes
+    // Telegram redeliver the same update, which only repeats the failure.
     Ok(())
 }
 
@@ -192,7 +196,10 @@ async fn handle_callback(
     prefs: &mut Preferences,
     query: teloxide::types::CallbackQuery,
 ) -> Result<()> {
-    bot.answer_callback_query(query.id.clone()).await?;
+    if let Err(error) = bot.answer_callback_query(query.id.clone()).await {
+        // Retried/stale callback queries fail here; the update is still usable.
+        tracing::warn!(%error, "Failed to answer callback query");
+    }
     let Some(message) = query.regular_message() else {
         return Ok(());
     };
