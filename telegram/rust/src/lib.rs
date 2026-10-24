@@ -5,6 +5,7 @@ pub mod format;
 pub mod handlers;
 pub mod keyboards;
 pub mod normalize;
+pub mod poster;
 pub mod prefs;
 pub mod ratings;
 pub mod store;

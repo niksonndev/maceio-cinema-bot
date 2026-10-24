@@ -107,11 +107,6 @@ fn markdown_mode() -> ParseMode {
     ParseMode::Markdown
 }
 
-fn poster_input_file(poster: &str) -> Result<InputFile> {
-    let url = reqwest::Url::parse(poster).map_err(|error| Error::Msg(error.to_string()))?;
-    Ok(InputFile::url(url))
-}
-
 fn parse_command(text: &str) -> Option<&str> {
     let command = text.split_whitespace().next()?;
     if !command.starts_with('/') {
@@ -373,9 +368,12 @@ async fn send_carousel_page(
         }
         let safe_index = index.min(items.len() - 1);
         let item = &items[safe_index];
-        let text = format_upcoming_card(item, cinema.label).await;
+        let (text, photo) = tokio::join!(
+            format_upcoming_card(item, cinema.label),
+            crate::poster::jpeg_for(item.poster.as_deref())
+        );
         let markup = carousel_keyboard(kind.as_str(), safe_index, items.len(), cinema.url);
-        send_card(bot, chat_id, &text, item.poster.as_deref(), markup).await?;
+        send_card(bot, chat_id, &text, photo, markup).await?;
         return Ok(());
     }
 
@@ -394,9 +392,12 @@ async fn send_carousel_page(
     }
     let safe_index = index.min(movies.len() - 1);
     let movie = &movies[safe_index];
-    let text = format_movie_card(movie, cinema.label, Some(&resolved_date)).await;
+    let (text, photo) = tokio::join!(
+        format_movie_card(movie, cinema.label, Some(&resolved_date)),
+        crate::poster::jpeg_for(movie.movie.poster.as_deref())
+    );
     let markup = carousel_keyboard(kind.as_str(), safe_index, movies.len(), cinema.url);
-    send_card(bot, chat_id, &text, movie.movie.poster.as_deref(), markup).await?;
+    send_card(bot, chat_id, &text, photo, markup).await?;
     Ok(())
 }
 
@@ -404,21 +405,28 @@ async fn send_card(
     bot: &Bot,
     chat_id: ChatId,
     text: &str,
-    poster: Option<&str>,
+    photo: Option<Vec<u8>>,
     markup: teloxide::types::InlineKeyboardMarkup,
 ) -> Result<()> {
-    if let Some(poster) = poster {
-        bot.send_photo(chat_id, poster_input_file(poster)?)
+    if let Some(photo) = photo {
+        let file = InputFile::memory(photo).file_name("poster.jpg");
+        match bot
+            .send_photo(chat_id, file)
             .caption(text)
             .parse_mode(markdown_mode())
-            .reply_markup(markup)
-            .await?;
-    } else {
-        bot.send_message(chat_id, text)
-            .parse_mode(markdown_mode())
-            .reply_markup(markup)
-            .await?;
+            .reply_markup(markup.clone())
+            .await
+        {
+            Ok(_) => return Ok(()),
+            Err(error) => {
+                tracing::warn!(%error, "sendPhoto failed; falling back to a text card");
+            }
+        }
     }
+    bot.send_message(chat_id, text)
+        .parse_mode(markdown_mode())
+        .reply_markup(markup)
+        .await?;
     Ok(())
 }
 
@@ -447,18 +455,12 @@ async fn edit_carousel_page(
         }
         let safe_index = index.min(items.len() - 1);
         let item = &items[safe_index];
-        let text = format_upcoming_card(item, cinema.label).await;
+        let (text, photo) = tokio::join!(
+            format_upcoming_card(item, cinema.label),
+            crate::poster::jpeg_for(item.poster.as_deref())
+        );
         let markup = carousel_keyboard(kind.as_str(), safe_index, items.len(), cinema.url);
-        edit_card(
-            bot,
-            chat_id,
-            message_id,
-            &text,
-            item.poster.as_deref(),
-            markup,
-            has_photo,
-        )
-        .await?;
+        edit_card(bot, chat_id, message_id, &text, photo, markup, has_photo).await?;
         return Ok(());
     }
 
@@ -477,18 +479,12 @@ async fn edit_carousel_page(
     }
     let safe_index = index.min(movies.len() - 1);
     let movie = &movies[safe_index];
-    let text = format_movie_card(movie, cinema.label, Some(&resolved_date)).await;
+    let (text, photo) = tokio::join!(
+        format_movie_card(movie, cinema.label, Some(&resolved_date)),
+        crate::poster::jpeg_for(movie.movie.poster.as_deref())
+    );
     let markup = carousel_keyboard(kind.as_str(), safe_index, movies.len(), cinema.url);
-    edit_card(
-        bot,
-        chat_id,
-        message_id,
-        &text,
-        movie.movie.poster.as_deref(),
-        markup,
-        has_photo,
-    )
-    .await?;
+    edit_card(bot, chat_id, message_id, &text, photo, markup, has_photo).await?;
     Ok(())
 }
 
@@ -498,14 +494,15 @@ async fn edit_card(
     chat_id: ChatId,
     message_id: teloxide::types::MessageId,
     text: &str,
-    poster: Option<&str>,
+    photo: Option<Vec<u8>>,
     markup: teloxide::types::InlineKeyboardMarkup,
     has_photo: bool,
 ) -> Result<()> {
     if has_photo {
-        if let Some(poster) = poster {
+        if let Some(photo) = photo {
+            let file = InputFile::memory(photo).file_name("poster.jpg");
             let media = InputMedia::Photo(
-                InputMediaPhoto::new(poster_input_file(poster)?)
+                InputMediaPhoto::new(file)
                     .caption(text)
                     .parse_mode(markdown_mode()),
             );
