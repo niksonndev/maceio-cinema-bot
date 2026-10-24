@@ -62,7 +62,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 polling_failures = 0;
                 for update in updates {
                     offset = update.id.0 as i32 + 1;
-                    if let Err(error) = handle_update(&bot, update, &mut cache, &mut prefs).await {
+                    if let Err(error) = handle_update(bot, update, &mut cache, &mut prefs).await {
                         tracing::error!(%error, "Failed to process Telegram update");
                     }
                     if let Err(error) = cache.save_if_dirty().await {

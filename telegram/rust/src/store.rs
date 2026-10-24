@@ -3,8 +3,25 @@ use crate::types::{
     SessionDayCache, UpcomingCache, UpcomingItem,
 };
 use aws_sdk_s3::primitives::ByteStream;
+use dashmap::DashMap;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::OnceLock;
+use std::time::{Duration, Instant};
+
+/// Warm Lambda containers reuse the S3 payload for this long instead of paying
+/// a GetObject round trip on every Telegram update.
+const S3_LOAD_TTL: Duration = Duration::from_secs(60);
+
+struct CachedBytes {
+    at: Instant,
+    bytes: Option<Vec<u8>>,
+}
+
+fn s3_load_cache() -> &'static DashMap<String, CachedBytes> {
+    static CACHE: OnceLock<DashMap<String, CachedBytes>> = OnceLock::new();
+    CACHE.get_or_init(DashMap::new)
+}
 
 async fn shared_s3_client() -> &'static aws_sdk_s3::Client {
     static CLIENT: tokio::sync::OnceCell<aws_sdk_s3::Client> = tokio::sync::OnceCell::const_new();
@@ -60,7 +77,37 @@ impl JsonStore {
         Ok(Self { backend })
     }
 
+    fn cache_key(&self) -> Option<String> {
+        match &self.backend {
+            Backend::Local(_) => None,
+            Backend::S3 { bucket, key, .. } => Some(format!("{bucket}/{key}")),
+        }
+    }
+
     pub(crate) async fn load(&self) -> Result<Option<Vec<u8>>> {
+        let cache_key = self.cache_key();
+        if let Some(key) = &cache_key {
+            if let Some(entry) = s3_load_cache().get(key) {
+                if entry.at.elapsed() < S3_LOAD_TTL {
+                    return Ok(entry.bytes.clone());
+                }
+            }
+        }
+
+        let bytes = self.load_uncached().await?;
+        if let Some(key) = cache_key {
+            s3_load_cache().insert(
+                key,
+                CachedBytes {
+                    at: Instant::now(),
+                    bytes: bytes.clone(),
+                },
+            );
+        }
+        Ok(bytes)
+    }
+
+    async fn load_uncached(&self) -> Result<Option<Vec<u8>>> {
         match &self.backend {
             Backend::Local(path) => match tokio::fs::read(path).await {
                 Ok(data) => Ok(Some(data)),
@@ -95,6 +142,21 @@ impl JsonStore {
     }
 
     pub(crate) async fn save(&self, data: Vec<u8>) -> Result<()> {
+        let cache_key = self.cache_key();
+        self.save_uncached(data.clone()).await?;
+        if let Some(key) = cache_key {
+            s3_load_cache().insert(
+                key,
+                CachedBytes {
+                    at: Instant::now(),
+                    bytes: Some(data),
+                },
+            );
+        }
+        Ok(())
+    }
+
+    async fn save_uncached(&self, data: Vec<u8>) -> Result<()> {
         match &self.backend {
             Backend::Local(path) => {
                 if let Some(parent) = path.parent() {
