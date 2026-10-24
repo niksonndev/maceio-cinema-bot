@@ -9,6 +9,7 @@ pub mod poster;
 pub mod prefs;
 pub mod ratings;
 pub mod store;
+pub mod text;
 pub mod types;
 
 use crate::types::{Error, Result};

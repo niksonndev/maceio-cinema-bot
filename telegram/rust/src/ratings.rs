@@ -1,3 +1,4 @@
+use crate::text::escape_markdown;
 use crate::types::RatingsResult;
 use dashmap::DashMap;
 use serde::Deserialize;
@@ -168,13 +169,13 @@ pub fn format_ratings_line(ratings: Option<&RatingsResult>) -> String {
     };
     let mut parts = Vec::new();
     if let Some(imdb) = &ratings.imdb {
-        parts.push(format!("⭐ IMDb: {imdb}/10"));
+        parts.push(format!("⭐ IMDb: {}/10", escape_markdown(imdb)));
     }
     if let Some(rotten_tomatoes) = &ratings.rotten_tomatoes {
-        parts.push(format!("🍅 RT: {rotten_tomatoes}"));
+        parts.push(format!("🍅 RT: {}", escape_markdown(rotten_tomatoes)));
     }
     if let Some(tmdb) = &ratings.tmdb {
-        parts.push(format!("⭐ TMDb: {tmdb}/10"));
+        parts.push(format!("⭐ TMDb: {}/10", escape_markdown(tmdb)));
     }
     if parts.is_empty() {
         return String::new();

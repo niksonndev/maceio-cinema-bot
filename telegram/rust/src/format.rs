@@ -1,4 +1,5 @@
 use crate::ratings::{format_ratings_line, get_movie_ratings};
+use crate::text::escape_markdown;
 use crate::types::{maceio_date, DenormalizedMovie, DenormalizedSession, UpcomingItem};
 use chrono::{Datelike, NaiveDate};
 
@@ -96,7 +97,8 @@ fn format_sessions_block(movie: &DenormalizedMovie) -> String {
             .iter()
             .find(|session| session.price_inteira.is_some());
         block.push_str(&format!(
-            "   {icon} *{format}:* {times}{}\n",
+            "   {icon} *{}:* {times}{}\n",
+            escape_markdown(&format),
             format_price_tag(price.copied())
         ));
     }
@@ -104,18 +106,14 @@ fn format_sessions_block(movie: &DenormalizedMovie) -> String {
 }
 
 fn format_when(days: i64, item: &UpcomingItem) -> String {
+    let date = escape_markdown(&item.first_date_formatted);
+    let weekday = escape_markdown(&item.first_date_day_of_week);
     if days == 1 {
-        format!("amanhã ({})", item.first_date_formatted)
+        format!("amanhã ({date})")
     } else if days <= 7 {
-        format!(
-            "nesta *{}* ({})",
-            item.first_date_day_of_week, item.first_date_formatted
-        )
+        format!("nesta *{weekday}* ({date})")
     } else {
-        format!(
-            "em {} ({})",
-            item.first_date_formatted, item.first_date_day_of_week
-        )
+        format!("em {date} ({weekday})")
     }
 }
 
@@ -125,11 +123,13 @@ pub async fn format_movie_card(
     date: Option<&str>,
 ) -> String {
     let mut text = format!(
-        "*🎬 PROGRAMAÇÃO*\n📍 {cinema_label}\n📅 {}\n\n*{}*\n",
+        "*🎬 PROGRAMAÇÃO*\n📍 {}\n📅 {}\n\n*{}*\n",
+        escape_markdown(cinema_label),
         format_date_pt(date),
-        movie.name
+        escape_markdown(&movie.name)
     );
-    let genres = (!movie.movie.genres.is_empty()).then(|| movie.movie.genres.join(", "));
+    let genres =
+        (!movie.movie.genres.is_empty()).then(|| escape_markdown(&movie.movie.genres.join(", ")));
     let rating = format_content_rating(movie.movie.content_rating.as_deref());
     let has_rating = rating.is_some();
     if genres.is_some() || rating.is_some() {
@@ -171,8 +171,9 @@ pub async fn format_upcoming_card(item: &UpcomingItem, cinema_label: &str) -> St
         ""
     };
     let mut text = format!(
-        "*🆕 PRÓXIMOS LANÇAMENTOS*\n📍 {cinema_label}\n\n🎬 *{}{presale}*\n",
-        item.title
+        "*🆕 PRÓXIMOS LANÇAMENTOS*\n📍 {}\n\n🎬 *{}{presale}*\n",
+        escape_markdown(cinema_label),
+        escape_markdown(&item.title)
     );
     let title = item
         .original_title
@@ -185,10 +186,16 @@ pub async fn format_upcoming_card(item: &UpcomingItem, cinema_label: &str) -> St
     }
     text.push_str(&format!("   📅 Estreia {}\n", format_when(days, item)));
     if !item.genres.is_empty() {
-        text.push_str(&format!("   _{}_\n", item.genres.join(", ")));
+        text.push_str(&format!(
+            "   _{}_\n",
+            escape_markdown(&item.genres.join(", "))
+        ));
     }
     if !item.formats.is_empty() {
-        text.push_str(&format!("   {}\n", item.formats.join(", ")));
+        text.push_str(&format!(
+            "   {}\n",
+            escape_markdown(&item.formats.join(", "))
+        ));
     }
     if let Some(price) = item.price_from {
         text.push_str(&format!("   A partir de R$ {:.2}\n", price).replace('.', ","));
@@ -199,6 +206,7 @@ pub async fn format_upcoming_card(item: &UpcomingItem, cinema_label: &str) -> St
 #[cfg(test)]
 mod tests {
     use super::{format_content_rating, format_date_pt};
+    use crate::types::{DenormalizedMovie, MovieStatic};
 
     #[test]
     fn formats_dates_and_content_ratings() {
@@ -211,5 +219,25 @@ mod tests {
             format_content_rating(Some("14")).as_deref(),
             Some("🟠 14 anos")
         );
+    }
+
+    #[tokio::test]
+    async fn escapes_markdown_in_dynamic_fields() {
+        let movie = DenormalizedMovie {
+            movie: MovieStatic {
+                id: 1,
+                title: "A_B".into(),
+                genres: vec!["Sci_Fi".into()],
+                ..MovieStatic::default()
+            },
+            name: "A_B".into(),
+            sessions: Vec::new(),
+        };
+
+        let card = super::format_movie_card(&movie, "Cine_X", None).await;
+
+        assert!(card.contains("A\\_B"));
+        assert!(card.contains("Sci\\_Fi"));
+        assert!(card.contains("Cine\\_X"));
     }
 }
