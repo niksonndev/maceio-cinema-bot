@@ -1,6 +1,6 @@
 use crate::types::{
-    iso_to_maceio_date, maceio_date, now_rfc3339, CacheData, MovieStatic, Session, SessionDayCache,
-    UpcomingCache, UpcomingItem,
+    iso_to_maceio_date, maceio_date, now_rfc3339, CacheData, DenormalizedMovie, MovieStatic,
+    Session, SessionDayCache, UpcomingCache, UpcomingItem,
 };
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -60,25 +60,45 @@ impl NormalizedCache {
     }
 
     pub fn get_sessions(&self, date: &str, theater_id: &str) -> Option<SessionDayCache> {
-        let mut data = self.data.lock().expect("cache lock");
-        let theater = data.sessions.get_mut(theater_id)?;
-        let cached = theater.get(date)?;
-        if cached.fetched_at.is_empty() {
+        if !self.has_fresh_sessions(date, theater_id) {
             return None;
+        }
+        let data = self.data.lock().expect("cache lock");
+        let cached = data.sessions.get(theater_id)?.get(date)?;
+        tracing::info!("Cache hit: sessions for {date} (theater {theater_id})");
+        Some(cached.clone())
+    }
+
+    pub fn has_fresh_sessions(&self, date: &str, theater_id: &str) -> bool {
+        let mut data = self.data.lock().expect("cache lock");
+        let Some(theater) = data.sessions.get_mut(theater_id) else {
+            return false;
+        };
+        let Some(cached) = theater.get(date) else {
+            return false;
+        };
+        if cached.fetched_at.is_empty() {
+            return false;
         }
         let cached_day = iso_to_maceio_date(&cached.fetched_at);
         let today = maceio_date(0);
         if cached_day != today {
             tracing::info!("Session cache for {date} expired ({cached_day} → {today})");
             theater.remove(date);
-            return None;
+            return false;
         }
-        tracing::info!("Cache hit: sessions for {date} (theater {theater_id})");
-        Some(cached.clone())
+        true
     }
 
     pub fn get_all_movies(&self) -> HashMap<String, MovieStatic> {
         self.data.lock().expect("cache lock").movies.clone()
+    }
+
+    /// Denormalizes sessions while holding the cache lock once, avoiding a
+    /// clone of the entire movie map.
+    pub fn denormalize(&self, sessions: &[Session]) -> Vec<DenormalizedMovie> {
+        let data = self.data.lock().expect("cache lock");
+        crate::normalize::denormalize(&data.movies, sessions)
     }
 
     pub fn set_upcoming(&self, items: Vec<UpcomingItem>, fetched_at: String, theater_id: &str) {
@@ -90,10 +110,22 @@ impl NormalizedCache {
     }
 
     pub fn get_upcoming(&self, theater_id: &str) -> Option<UpcomingCache> {
-        let mut data = self.data.lock().expect("cache lock");
-        let cached = data.upcoming.get(theater_id)?;
-        if cached.fetched_at.is_empty() {
+        if !self.has_fresh_upcoming(theater_id) {
             return None;
+        }
+        let data = self.data.lock().expect("cache lock");
+        let cached = data.upcoming.get(theater_id)?;
+        tracing::info!("Cache hit: upcoming releases (theater {theater_id})");
+        Some(cached.clone())
+    }
+
+    pub fn has_fresh_upcoming(&self, theater_id: &str) -> bool {
+        let mut data = self.data.lock().expect("cache lock");
+        let Some(cached) = data.upcoming.get(theater_id) else {
+            return false;
+        };
+        if cached.fetched_at.is_empty() {
+            return false;
         }
         let cached_day = iso_to_maceio_date(&cached.fetched_at);
         let today = maceio_date(0);
@@ -102,10 +134,9 @@ impl NormalizedCache {
                 "Upcoming cache expired for theater {theater_id} ({cached_day} → {today})"
             );
             data.upcoming.remove(theater_id);
-            return None;
+            return false;
         }
-        tracing::info!("Cache hit: upcoming releases (theater {theater_id})");
-        Some(cached.clone())
+        true
     }
 }
 

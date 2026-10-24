@@ -7,10 +7,22 @@ use std::time::{Duration, Instant};
 const OMDB_BASE: &str = "https://www.omdbapi.com/";
 const TMDB_BASE: &str = "https://api.themoviedb.org/3";
 const CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(2);
+const LOOKUP_TIMEOUT: Duration = Duration::from_secs(3);
 
 struct CacheEntry {
     at: Instant,
     data: Option<RatingsResult>,
+}
+
+fn client() -> &'static reqwest::Client {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .timeout(REQUEST_TIMEOUT)
+            .build()
+            .expect("ratings client")
+    })
 }
 
 fn memory() -> &'static DashMap<String, CacheEntry> {
@@ -61,15 +73,12 @@ async fn fetch_from_omdb(title: &str, year: Option<&str>) -> Option<RatingsResul
         .or_else(|_| std::env::var("OMDB_API_KEY"))
         .ok()
         .filter(|s| !s.is_empty())?;
-    let mut req = reqwest::Client::new()
-        .get(OMDB_BASE)
-        .query(&[
-            ("apikey", api_key.as_str()),
-            ("t", title),
-            ("type", "movie"),
-            ("r", "json"),
-        ])
-        .timeout(Duration::from_secs(5));
+    let mut req = client().get(OMDB_BASE).query(&[
+        ("apikey", api_key.as_str()),
+        ("t", title),
+        ("type", "movie"),
+        ("r", "json"),
+    ]);
     if let Some(y) = year {
         req = req.query(&[("y", y)]);
     }
@@ -105,15 +114,12 @@ async fn fetch_from_tmdb(title: &str, year: Option<&str>) -> Option<RatingsResul
     let api_key = std::env::var("TMDB_API_KEY")
         .ok()
         .filter(|s| !s.is_empty())?;
-    let mut req = reqwest::Client::new()
-        .get(format!("{TMDB_BASE}/search/movie"))
-        .query(&[
-            ("api_key", api_key.as_str()),
-            ("query", title),
-            ("include_adult", "false"),
-            ("language", "en-US"),
-        ])
-        .timeout(Duration::from_secs(5));
+    let mut req = client().get(format!("{TMDB_BASE}/search/movie")).query(&[
+        ("api_key", api_key.as_str()),
+        ("query", title),
+        ("include_adult", "false"),
+        ("language", "en-US"),
+    ]);
     if let Some(y) = year {
         req = req.query(&[("year", y)]);
     }
@@ -131,6 +137,13 @@ async fn fetch_from_tmdb(title: &str, year: Option<&str>) -> Option<RatingsResul
     })
 }
 
+async fn lookup(title: &str, year: Option<&str>) -> Option<RatingsResult> {
+    match fetch_from_omdb(title, year).await {
+        result @ Some(_) => result,
+        None => fetch_from_tmdb(title, year).await,
+    }
+}
+
 pub async fn get_movie_ratings(title: &str, year: Option<&str>) -> Option<RatingsResult> {
     let key = cache_key(title, year);
     if let Some(cached) = memory().get(&key) {
@@ -139,10 +152,10 @@ pub async fn get_movie_ratings(title: &str, year: Option<&str>) -> Option<Rating
         }
     }
 
-    let mut result = match fetch_from_omdb(title, year).await {
-        some @ Some(_) => some,
-        None => fetch_from_tmdb(title, year).await,
-    };
+    let mut result = tokio::time::timeout(LOOKUP_TIMEOUT, lookup(title, year))
+        .await
+        .ok()
+        .flatten();
     if result
         .as_ref()
         .is_some_and(|r| r.imdb.is_none() && r.rotten_tomatoes.is_none() && r.tmdb.is_none())

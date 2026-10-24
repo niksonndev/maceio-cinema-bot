@@ -17,16 +17,6 @@ const MESES: [&str; 12] = [
     "dezembro",
 ];
 
-fn format_label(format: &str) -> &str {
-    match format {
-        "2D" => "2D",
-        "Cinépic" => "Cinépic",
-        "VIP" => "VIP",
-        "3D" => "3D",
-        other => other,
-    }
-}
-
 fn format_icon(format: &str) -> &'static str {
     match format {
         "2D" => "🎞",
@@ -215,7 +205,7 @@ pub async fn format_single_upcoming_card(item: &UpcomingItem, cinema_label: &str
         text.push_str(&format!("   _{}_\n", item.genres.join(", ")));
     }
     if !item.formats.is_empty() {
-        let labels: Vec<&str> = item.formats.iter().map(|f| format_label(f)).collect();
+        let labels: Vec<&str> = item.formats.iter().map(String::as_str).collect();
         text.push_str(&format!("   {}\n", labels.join(", ")));
     }
     if let Some(price) = item.price_from {

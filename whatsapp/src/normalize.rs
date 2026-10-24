@@ -2,6 +2,7 @@ use crate::types::{
     now_rfc3339, DenormalizedMovie, DenormalizedSession, IngressoDateEntry, IngressoRawMovie,
     IngressoSessionGroup, IngressoTag, MovieStatic, NormalizedSessions, Session, UpcomingItem,
 };
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 
 fn tag_name(t: &IngressoTag) -> String {
@@ -231,34 +232,37 @@ pub fn denormalize(
     sessions: &[Session],
 ) -> Vec<DenormalizedMovie> {
     let mut grouped: HashMap<i64, DenormalizedMovie> = HashMap::new();
+    let mut order = Vec::new();
     for session in sessions {
-        if !grouped.contains_key(&session.movie_id) {
-            let Some(movie) = movies.get(&session.movie_id.to_string()) else {
-                continue;
-            };
-            grouped.insert(
-                session.movie_id,
-                DenormalizedMovie {
+        let movie = match grouped.entry(session.movie_id) {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => {
+                let Some(movie) = movies.get(&session.movie_id.to_string()) else {
+                    continue;
+                };
+                order.push(session.movie_id);
+                entry.insert(DenormalizedMovie {
                     name: movie.title.clone(),
                     movie: movie.clone(),
                     sessions: Vec::new(),
-                },
-            );
-        }
-        if let Some(entry) = grouped.get_mut(&session.movie_id) {
-            entry.sessions.push(DenormalizedSession {
-                time: session.time.clone(),
-                session_id: session.id.clone(),
-                price_inteira: session.price,
-                price_meia: session.price.map(|p| (p / 2.0 * 100.0).round() / 100.0),
-                gratuito: session.price.is_none() || session.price == Some(0.0),
-                room: session.room.clone(),
-                format: session.format.clone(),
-                audio: session.audio.clone(),
-            });
-        }
+                })
+            }
+        };
+        movie.sessions.push(DenormalizedSession {
+            time: session.time.clone(),
+            session_id: session.id.clone(),
+            price_inteira: session.price,
+            price_meia: session.price.map(|p| (p / 2.0 * 100.0).round() / 100.0),
+            gratuito: session.price.is_none() || session.price == Some(0.0),
+            room: session.room.clone(),
+            format: session.format.clone(),
+            audio: session.audio.clone(),
+        });
     }
-    grouped.into_values().collect()
+    order
+        .into_iter()
+        .filter_map(|movie_id| grouped.remove(&movie_id))
+        .collect()
 }
 
 #[cfg(test)]

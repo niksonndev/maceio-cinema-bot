@@ -23,20 +23,23 @@ pub async fn get_movies_for_date(
         .unwrap_or_else(|| get_date_string(0));
 
     if let Some(cached) = cache.get_sessions(&target_date, theater) {
-        let movies = denormalize(&cache.get_all_movies(), &cached.items);
+        let movies = cache.denormalize(&cached.items);
         return Ok((movies, target_date, true));
     }
 
     let normalized = fetch_normalized(date, theater).await?;
+    let movies = denormalize(&normalized.movies, &normalized.sessions);
     cache.merge_movies(&normalized.movies);
-    let date_key = normalized.date.clone().unwrap_or(target_date.clone());
+    let date_key = normalized
+        .date
+        .clone()
+        .unwrap_or_else(|| target_date.clone());
     cache.set_sessions(
         &date_key,
-        normalized.sessions.clone(),
+        normalized.sessions,
         normalized.fetched_at,
         theater,
     );
-    let movies = denormalize(&normalized.movies, &normalized.sessions);
     Ok((movies, date_key, false))
 }
 

@@ -1,6 +1,6 @@
 use maceio_cine_whatsapp::cache::NormalizedCache;
 use maceio_cine_whatsapp::cinemas::{cinema_list_text, parse_cinema_choice};
-use maceio_cine_whatsapp::data::{get_movies_for_date, get_upcoming_movies};
+use maceio_cine_whatsapp::data::{get_date_string, get_movies_for_date, get_upcoming_movies};
 use maceio_cine_whatsapp::format::{format_single_movie_card, format_single_upcoming_card};
 use maceio_cine_whatsapp::ingresso::fetch_normalized;
 use maceio_cine_whatsapp::prefs::Prefs;
@@ -44,11 +44,7 @@ fn help_text() -> &'static str {
      Envie *1*, *2* ou *3* para escolher o cinema."
 }
 
-async fn require_cinema<'a>(
-    ctx: &MessageContext,
-    prefs: &Prefs,
-    jid: &str,
-) -> Option<&'static Cinema> {
+async fn require_cinema(ctx: &MessageContext, prefs: &Prefs, jid: &str) -> Option<&'static Cinema> {
     match prefs.get_user_cinema(jid) {
         Some(c) => Some(c),
         None => {
@@ -135,14 +131,18 @@ pub async fn handle_message(ctx: MessageContext, cache: Arc<NormalizedCache>, pr
             let Some(cinema) = require_cinema(&ctx, &prefs, &jid).await else {
                 return;
             };
-            reply(&ctx, "⏳ Buscando filmes de hoje...").await;
+            if !cache.has_fresh_sessions(&get_date_string(0), cinema.id) {
+                reply(&ctx, "⏳ Buscando filmes de hoje...").await;
+            }
             send_today(&ctx, &cache, cinema).await;
         }
         "proximos" | "próximos" => {
             let Some(cinema) = require_cinema(&ctx, &prefs, &jid).await else {
                 return;
             };
-            reply(&ctx, "⏳ Buscando próximos lançamentos...").await;
+            if !cache.has_fresh_upcoming(cinema.id) {
+                reply(&ctx, "⏳ Buscando próximos lançamentos...").await;
+            }
             send_upcoming(&ctx, &cache, cinema).await;
         }
         "cinemas" | "cinema" => {
