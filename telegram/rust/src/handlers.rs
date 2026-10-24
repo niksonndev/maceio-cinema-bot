@@ -39,6 +39,23 @@ impl CarouselKind {
             Self::Upcoming => None,
         }
     }
+
+    fn loading_text(&self) -> &'static str {
+        match self {
+            Self::Today => "⏳ Buscando filmes de hoje...",
+            Self::Tomorrow => "⏳ Buscando filmes de amanhã...",
+            Self::Upcoming => "⏳ Buscando próximos lançamentos...",
+        }
+    }
+
+    fn is_cached(&self, cache: &NormalizedCache, cinema: &Cinema) -> bool {
+        match self {
+            Self::Upcoming => cache.get_upcoming(cinema.id).is_some(),
+            _ => self
+                .date()
+                .is_some_and(|date| cache.get_sessions(&date, cinema.id).is_some()),
+        }
+    }
 }
 
 pub async fn handle_update(
@@ -141,15 +158,7 @@ async fn handle_command(
             } else {
                 CarouselKind::Upcoming
             };
-            let loading = if matches!(kind, CarouselKind::Today) {
-                "⏳ Buscando filmes de hoje..."
-            } else {
-                "⏳ Buscando próximos lançamentos..."
-            };
-            with_loading(bot, chat_id, loading, async {
-                send_carousel_page(bot, cache, chat_id, &kind, 0, cinema).await
-            })
-            .await?;
+            show_carousel(bot, cache, chat_id, &kind, cinema).await?;
         }
         "cinemas" => send_cinema_picker(bot, prefs, chat_id).await?,
         "atualizar" => {
@@ -242,46 +251,13 @@ async fn handle_callback(
     }
 
     match data {
-        "filmes_hoje" => {
-            let kind = CarouselKind::Today;
-            let date = kind.date().unwrap_or_default();
-            if cache.get_sessions(&date, cinema.id).is_none() {
-                with_loading(
-                    bot,
-                    chat_id,
-                    "⏳ Buscando filmes de hoje... Aguarde um momento!",
-                    async { send_carousel_page(bot, cache, chat_id, &kind, 0, cinema).await },
-                )
-                .await?;
-            } else {
-                send_carousel_page(bot, cache, chat_id, &kind, 0, cinema).await?;
-            }
-        }
-        "filmes_amanha" => {
-            let kind = CarouselKind::Tomorrow;
-            let date = kind.date().unwrap_or_default();
-            if cache.get_sessions(&date, cinema.id).is_none() {
-                with_loading(
-                    bot,
-                    chat_id,
-                    "⏳ Buscando filmes de amanhã... Aguarde um momento!",
-                    async { send_carousel_page(bot, cache, chat_id, &kind, 0, cinema).await },
-                )
-                .await?;
-            } else {
-                send_carousel_page(bot, cache, chat_id, &kind, 0, cinema).await?;
-            }
-        }
-        "proximos_lancamentos" => {
-            let kind = CarouselKind::Upcoming;
-            if cache.get_upcoming(cinema.id).is_none() {
-                with_loading(bot, chat_id, "⏳ Buscando próximos lançamentos...", async {
-                    send_carousel_page(bot, cache, chat_id, &kind, 0, cinema).await
-                })
-                .await?;
-            } else {
-                send_carousel_page(bot, cache, chat_id, &kind, 0, cinema).await?;
-            }
+        "filmes_hoje" | "filmes_amanha" | "proximos_lancamentos" => {
+            let kind = match data {
+                "filmes_hoje" => CarouselKind::Today,
+                "filmes_amanha" => CarouselKind::Tomorrow,
+                _ => CarouselKind::Upcoming,
+            };
+            show_carousel(bot, cache, chat_id, &kind, cinema).await?;
         }
         "voltar_menu" => {
             bot.send_message(
@@ -344,6 +320,25 @@ where
     let result = work.await;
     let _ = bot.delete_message(chat_id, loading.id).await;
     result
+}
+
+/// Sends the first carousel page, showing a temporary "loading" message only
+/// when the data is not cached (otherwise it costs two extra Telegram calls).
+async fn show_carousel(
+    bot: &Bot,
+    cache: &mut NormalizedCache,
+    chat_id: ChatId,
+    kind: &CarouselKind,
+    cinema: &Cinema,
+) -> Result<()> {
+    if kind.is_cached(cache, cinema) {
+        send_carousel_page(bot, cache, chat_id, kind, 0, cinema).await
+    } else {
+        with_loading(bot, chat_id, kind.loading_text(), async {
+            send_carousel_page(bot, cache, chat_id, kind, 0, cinema).await
+        })
+        .await
+    }
 }
 
 async fn send_carousel_page(
