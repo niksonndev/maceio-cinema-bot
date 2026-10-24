@@ -4,10 +4,12 @@ use crate::types::{
 };
 use std::collections::HashSet;
 use std::sync::OnceLock;
+use std::time::Duration;
 
 const BASE_URL: &str = "https://api-content.ingresso.com";
 const CITY_ID: u32 = 53;
 const DEFAULT_THEATER_ID: &str = "1162";
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(8);
 
 fn client() -> &'static reqwest::Client {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
@@ -29,6 +31,8 @@ fn client() -> &'static reqwest::Client {
         );
         reqwest::Client::builder()
             .default_headers(headers)
+            .connect_timeout(Duration::from_secs(3))
+            .timeout(REQUEST_TIMEOUT)
             .build()
             .expect("reqwest client")
     })
