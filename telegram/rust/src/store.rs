@@ -51,10 +51,19 @@ enum Backend {
 
 pub(crate) struct JsonStore {
     backend: Backend,
+    ttl: Duration,
 }
 
 impl JsonStore {
     pub(crate) async fn from_env(key_env: &str, local_path: &str) -> Result<Self> {
+        Self::from_env_with_ttl(key_env, local_path, S3_LOAD_TTL).await
+    }
+
+    pub(crate) async fn from_env_with_ttl(
+        key_env: &str,
+        local_path: &str,
+        ttl: Duration,
+    ) -> Result<Self> {
         let backend = if let Some(bucket) = std::env::var("S3_BUCKET")
             .ok()
             .filter(|bucket| !bucket.is_empty())
@@ -74,10 +83,13 @@ impl JsonStore {
         } else {
             Backend::Local(PathBuf::from(local_path))
         };
-        Ok(Self { backend })
+        Ok(Self { backend, ttl })
     }
 
     fn cache_key(&self) -> Option<String> {
+        if self.ttl.is_zero() {
+            return None;
+        }
         match &self.backend {
             Backend::Local(_) => None,
             Backend::S3 { bucket, key, .. } => Some(format!("{bucket}/{key}")),
@@ -88,7 +100,7 @@ impl JsonStore {
         let cache_key = self.cache_key();
         if let Some(key) = &cache_key {
             if let Some(entry) = s3_load_cache().get(key) {
-                if entry.at.elapsed() < S3_LOAD_TTL {
+                if entry.at.elapsed() < self.ttl {
                     return Ok(entry.bytes.clone());
                 }
             }
@@ -318,6 +330,7 @@ mod tests {
             },
             store: JsonStore {
                 backend: Backend::Local(PathBuf::new()),
+                ttl: std::time::Duration::ZERO,
             },
             dirty: false,
         };

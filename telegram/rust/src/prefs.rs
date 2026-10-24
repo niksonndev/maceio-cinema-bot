@@ -2,6 +2,7 @@ use crate::cinemas::find_cinema_by_id;
 use crate::store::JsonStore;
 use crate::types::{Error, Result};
 use std::collections::HashMap;
+use std::time::Duration;
 
 pub struct Preferences {
     data: HashMap<String, String>,
@@ -10,7 +11,10 @@ pub struct Preferences {
 
 impl Preferences {
     pub async fn load() -> Result<Self> {
-        let store = JsonStore::from_env("PREFS_KEY", "data/prefs.json").await?;
+        // Preferences change when the user picks a cinema, so never serve a
+        // stale copy from the per-container read cache.
+        let store =
+            JsonStore::from_env_with_ttl("PREFS_KEY", "data/prefs.json", Duration::ZERO).await?;
         let data = match store.load().await? {
             Some(bytes) => match serde_json::from_slice(&bytes) {
                 Ok(data) => data,
