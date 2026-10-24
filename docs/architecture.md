@@ -25,7 +25,9 @@ Rust (`teloxide` + `lambda_http`). Production: AWS SAM custom runtime `provided.
 
 JSON cache (`data/cache.json` or S3) and prefs (`data/prefs.json` / S3). Ratings: in-memory cache (24h TTL).
 
-`BotFunction` reloads cache and prefs from S3 on **every** invoke and awaits `handle_update()` before HTTP 200. `FetchFunction` is invoked by EventBridge and also registers the webhook and bot commands.
+`BotFunction` awaits `handle_update()` and always answers Telegram with HTTP 200 — failures are logged, never surfaced as a 5xx, because a 5xx makes Telegram retry the same update in a loop. Cache reads are memoized for 60s per warm container; prefs are re-read on every invoke. `FetchFunction` is invoked by EventBridge and also registers the webhook and bot commands.
+
+Posters are always `.webp` on Ingresso's CDN and the Telegram Bot API rejects WebP in `sendPhoto`. `poster.rs` converts them to JPEG (640px wide, quality 82) in memory, memoized per container, and falls back to a text-only card when conversion fails.
 
 Local polling checks `getWebhookInfo` and refuses to start if a webhook is active. Use a staging bot token for local polling.
 
@@ -36,7 +38,8 @@ Local polling checks `getWebhookInfo` and refuses to start if a webhook is activ
 | `api.rs` / `normalize.rs` | Ingresso.com client, normalization and denormalization |
 | `store.rs` / `prefs.rs` | Local JSON or S3 cache and saved cinema preferences |
 | `data.rs` / `types.rs` | Cache-aside orchestration and persisted data model |
-| `format.rs` / `ratings.rs` | Telegram Markdown cards and OMDb/TMDb (24h) |
+| `format.rs` / `text.rs` | Telegram Markdown cards and legacy-Markdown escaping |
+| `poster.rs` / `ratings.rs` | WebP→JPEG poster conversion and OMDb/TMDb (24h) |
 | `keyboards.rs` / `handlers.rs` | Inline keyboards, commands and carousel callbacks |
 | `main.rs` / `fetch.rs` | Webhook Lambda and daily warm Lambda |
 | `polling.rs` | Local polling + health endpoint; rejects active webhooks |

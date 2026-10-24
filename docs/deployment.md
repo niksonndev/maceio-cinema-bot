@@ -121,6 +121,7 @@ region = "sa-east-1"
 
 - **Pull request to `main`:** Telegram `cargo fmt` / Clippy / tests and SAM build; WhatsApp `cargo test` / `cargo build --release`.
 - **Push to `main`:** the same checks, then `sam deploy` from `telegram/` and `sam-warm.sh`.
+- **Documentation only** (`**/*.md`): the workflow is skipped, so doc edits never trigger a deploy.
 
 AWS auth is via **OIDC** (`aws-actions/configure-aws-credentials`).
 

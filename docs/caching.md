@@ -15,8 +15,16 @@ Choice is automatic in `telegram/rust/src/store.rs` / `telegram/rust/src/prefs.r
 set, uses the AWS SDK (`GetObject` / `PutObject`); otherwise uses the local file.
 `AWS_ENDPOINT_URL` (with `forcePathStyle`) enables LocalStack without forking the code.
 
-BotFunction **reloads** cache and prefs from S3 on **every invoke**, so it does not serve
-data from another instance or a stale warm.
+### Read policy inside BotFunction
+
+| Object | Read behavior | Why |
+| ------ | ------------- | --- |
+| `cache.json` | Memoized for **60s per warm container** (`S3_LOAD_TTL` in `store.rs`), then `GetObject` again | Saves one S3 round trip on every update without serving data older than a minute |
+| `prefs.json` | `GetObject` on **every invoke** (`from_env_with_ttl(..., Duration::ZERO)`) | Preferences change at any time; a stale read could send a user to the wrong cinema |
+
+Writes (`save`) update the memoized payload immediately, so a container never reads back its
+own stale copy. Other containers converge within 60s for the schedule cache and immediately for
+prefs.
 
 ## Logical storage
 
@@ -72,9 +80,10 @@ Cache hits return denormalized movies without writing S3. On a miss, the service
 ## Daily warm (production)
 
 The Rust `telegram-fetch` Lambda (EventBridge, `cron(0 3 * * ? *)` = midnight in Maceió)
-preloads sessions and upcoming for all 3 theaters and writes to S3, reducing cold-start
-fetch on user interactions. After deploy, run `bash scripts/sam-warm.sh` once
-to register the webhook and warm the cache (otherwise wait for the 03:00 UTC cron).
+preloads sessions and upcoming for **today and tomorrow** in all 3 theaters and writes to S3,
+so the first user of the day — and every user asking for tomorrow — hits a warm cache.
+After deploy, run `bash scripts/sam-warm.sh` once to register the webhook and warm the cache
+(otherwise wait for the 03:00 UTC cron).
 
 ## 3-cinema strategy
 
