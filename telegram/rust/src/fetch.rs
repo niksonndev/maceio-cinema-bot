@@ -9,22 +9,28 @@ use teloxide::types::BotCommand;
 async fn handler(_: LambdaEvent<serde_json::Value>) -> Result<serde_json::Value, Error> {
     let bot = maceio_cine_telegram::bot()?;
     let mut cache = NormalizedCache::load().await?;
-    let date = get_date_string(0);
+    let dates = [get_date_string(0), get_date_string(1)];
     let mut updated_movies = 0;
 
     for cinema in &CINEMAS {
-        match fetch_normalized(None, cinema.id).await {
-            Ok(normalized) => {
-                updated_movies += normalized.movies.len();
-                cache.merge_movies(&normalized.movies);
-                cache.set_sessions(
-                    normalized.date.as_deref().unwrap_or(&date),
-                    normalized.sessions,
-                    normalized.fetched_at,
-                    cinema.id,
-                );
+        for date in &dates {
+            match fetch_normalized(Some(date), cinema.id).await {
+                Ok(normalized) => {
+                    let before = cache.data.movies.len();
+                    cache.merge_movies(&normalized.movies);
+                    updated_movies += cache.data.movies.len() - before;
+                    let date_key = normalized.date.unwrap_or_else(|| date.clone());
+                    cache.set_sessions(
+                        &date_key,
+                        normalized.sessions,
+                        normalized.fetched_at,
+                        cinema.id,
+                    );
+                }
+                Err(error) => {
+                    tracing::error!(theater = cinema.id, date = %date, %error, "Failed updating sessions")
+                }
             }
-            Err(error) => tracing::error!(theater = cinema.id, %error, "Failed updating sessions"),
         }
 
         match fetch_upcoming(cinema.id).await {
